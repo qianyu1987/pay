@@ -1,0 +1,17 @@
+{
+  "name": "qianjie-loan",
+  "version": "1.0.0",
+  "description": "朋友间私人借贷：电子借条 + 到期还款确认工具（合规，资金不过站）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.3"
+  }
+}

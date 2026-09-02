@@ -1,0 +1,19 @@
+# 密钥与敏感数据（永不入库）
+data/wxpay.json
+data/db.json
+data/db.json.*
+data/uploads/
+
+# 依赖与运行
+node_modules/
+*.log
+
+# 系统文件
+.DS_Store
+._*
+Thumbs.db
+
+# 测试与截图
+screenshots/
+test/
+runner_*.js

@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a3a5c">
+<title>朋友借条 · 管理台</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f4f6f9; --card:#ffffff; --line:#e5e9ef;
+  --ink:#1b2733; --sub:#6b7a8a;
+  --brand:#1a5fb4; --brand-ink:#ffffff; --brand-2:#e9f1fb;
+  --ok:#1a9e5c; --ok-bg:#e7f7ee;
+  --warn:#d97706; --warn-bg:#fdf1e0;
+  --danger:#d64545; --danger-bg:#fdeaea;
+  --radius:16px; --shadow:0 1px 3px rgba(20,40,70,.08),0 6px 18px rgba(20,40,70,.06);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.55}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+a{color:var(--brand);text-decoration:none}
+.hidden{display:none!important}
+.wrap{max-width:560px;margin:0 auto;padding:16px 16px calc(84px + var(--safe-b))}
+/* header */
+.topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:560px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px}
+.logo{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1a5fb4,#2e8bdc);display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:700;flex:none}
+.ttl{font-size:16.5px;font-weight:700;letter-spacing:.3px}
+.ttl small{display:block;font-size:11px;color:var(--sub);font-weight:400;letter-spacing:1.5px}
+/* nav */
+.bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.95);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding-bottom:var(--safe-b)}
+.bottomnav .in{max-width:560px;margin:0 auto;display:flex}
+.nitem{flex:1;padding:9px 0 8px;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--sub);font-size:11px;transition:.2s}
+.nitem .ic{font-size:20px;line-height:1}
+.nitem.on{color:var(--brand);font-weight:600}
+/* cards */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px;border:1px solid var(--line)}
+.card h3{margin:0 0 12px;font-size:15px;display:flex;align-items:center;gap:8px}
+.muted{color:var(--sub)}
+.statgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:var(--shadow)}
+.stat .k{font-size:12px;color:var(--sub)}
+.stat .v{font-size:20px;font-weight:800;margin-top:2px}
+.stat .v.red{color:var(--danger)} .stat .v.green{color:var(--ok)} .stat .v.blue{color:var(--brand)} .stat .v.amber{color:var(--warn)}
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:12px;padding:11px 18px;font-weight:600;font-size:15px;transition:.15s;border:1px solid transparent}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--brand);color:#fff}
+.btn.pri2{background:var(--brand-2);color:var(--brand)}
+.btn.ghost{background:#fff;border-color:var(--line);color:var(--ink)}
+.btn.danger{background:var(--danger-bg);color:var(--danger)}
+.btn.green{background:var(--ok);color:#fff}
+.btn.okline{background:var(--ok-bg);color:var(--ok)}
+.btn.block{width:100%}
+.btn.lg{padding:14px;font-size:16px;border-radius:14px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.iconbtn{width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:17px;background:var(--brand-2);color:var(--brand)}
+/* forms */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:6px;font-weight:600}
+.ctl{width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px 13px;font-size:15px;outline:none;transition:.15s}
+.ctl:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(26,95,180,.12)}
+textarea.ctl{resize:vertical;min-height:74px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+select.ctl{appearance:auto}
+/* pills/tags */
+.tag{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+.tag.active{background:var(--brand-2);color:var(--brand)}
+.tag.overdue{background:var(--danger-bg);color:var(--danger)}
+.tag.paid{background:var(--ok-bg);color:var(--ok)}
+.tag.cancelled{background:#eef0f3;color:#9aa5b0}
+.tag.pending{background:var(--warn-bg);color:var(--warn)}
+.seg{display:flex;background:#e9edf3;border-radius:12px;padding:3px;gap:2px;margin-bottom:14px}
+.seg button{flex:1;padding:8px 4px;border-radius:10px;font-size:13px;color:var(--sub);font-weight:600;transition:.15s}
+.seg button.on{background:#fff;color:var(--brand);box-shadow:0 1px 4px rgba(20,40,70,.12)}
+/* loan card */
+.lcard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px;background:#fff;box-shadow:var(--shadow);cursor:pointer;transition:.15s}
+.lcard:active{transform:scale(.99)}
+.lcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.lcard .nm{font-size:16px;font-weight:700}
+.lcard .no{font-size:11.5px;color:var(--sub);margin-top:1px}
+.lcard .amt{text-align:right}
+.lcard .amt .a{font-size:18px;font-weight:800}
+.lcard .amt .due{font-size:11px;color:var(--sub)}
+.lcard .meta{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;font-size:12px;color:var(--sub);align-items:center}
+.lcard .foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:12px;color:var(--sub)}
+.money{font-variant-numeric:tabular-nums}
+.bigamount{font-size:30px;font-weight:800;letter-spacing:.5px;font-variant-numeric:tabular-nums}
+/* toast */
+#toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(10px);background:rgba(27,39,51,.94);color:#fff;padding:10px 18px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:82vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(15,25,40,.5);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .2s}
+.mask.center{align-items:center;padding:20px}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{background:#fff;border-radius:22px 22px 0 0;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:18px 16px calc(20px + var(--safe-b));animation:up .25s}
+.mask.center .sheet{border-radius:22px;max-height:88vh}
+@keyframes up{from{transform:translateY(40px);opacity:.5}to{transform:translateY(0);opacity:1}}
+.sheet h2{margin:2px 0 14px;font-size:17px}
+.sclose{position:sticky;top:0;float:right;margin:-6px -6px 0 0}
+/* detail kv */
+.kv{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.kv:last-child{border-bottom:none}
+.kv .k{color:var(--sub);flex:none}
+.kv .v{text-align:right;font-weight:600;word-break:break-all}
+/* status steps */
+.flow{display:flex;align-items:center;gap:6px;margin:8px 0}
+.flow .dot{width:20px;height:20px;border-radius:50%;background:#e9edf3;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;flex:none}
+.flow .dot.on{background:var(--ok)}
+.flow .dot.warn{background:var(--warn)}
+.flow .ln{height:2px;flex:1;background:#e9edf3;border-radius:2px}
+.flow .ln.on{background:var(--ok)}
+.qrbox{display:flex;justify-content:center;padding:8px 0}
+.qrbox img{width:200px;height:200px;border-radius:12px;border:1px solid var(--line)}
+.emptystate{text-align:center;padding:44px 20px;color:var(--sub)}
+.emptystate .eic{font-size:44px;opacity:.5}
+.uploadqr{display:flex;gap:12px;align-items:center;background:var(--bg);border:1px dashed var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+.uploadqr img{width:66px;height:66px;object-fit:contain;border-radius:10px;background:#fff;border:1px solid var(--line)}
+.alert{border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.5}
+.alert.warn{background:var(--warn-bg);color:#8a5208}
+.alert.red{background:var(--danger-bg);color:var(--danger)}
+.alert.info{background:var(--brand-2);color:#14487e}
+.list-item{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px;background:#fff}
+.list-item .r1{display:flex;justify-content:space-between;font-size:14px;font-weight:600}
+.list-item .r2{font-size:12px;color:var(--sub);margin-top:3px}
+.empty-tip{font-size:12px;color:var(--sub);text-align:center;padding:6px 0}
+.badge-new{position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;font-size:10px;padding:1px 6px;border-radius:999px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="loginView" class="hidden">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px">
+    <div style="width:100%;max-width:380px">
+      <div style="text-align:center;margin-bottom:22px">
+        <div style="width:60px;height:60px;border-radius:18px;margin:0 auto 12px;background:linear-gradient(135deg,#1a5fb4,#2e8bdc);display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;font-weight:800">借</div>
+        <div style="font-size:21px;font-weight:800">朋友借条 · 管理台</div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">好友间借贷记录 · 资金不经过本网站</div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div id="setupBox" class="hidden">
+          <h3 style="margin-bottom:6px">首次使用，请设置登录密码</h3>
+          <div class="muted" style="font-size:12.5px;margin-bottom:14px">密码保存在本机，仅你本人可登录管理台</div>
+          <div class="field"><label>设置密码（至少6位）</label><input type="password" id="pw1" class="ctl" placeholder="输入密码"></div>
+          <div class="field"><label>确认密码</label><input type="password" id="pw2" class="ctl" placeholder="再次输入"></div>
+          <button class="btn pri block lg" onclick="doSetup()">创建管理台</button>
+        </div>
+        <div id="loginBox">
+          <h3 style="margin-bottom:6px">欢迎回来</h3>
+          <div class="field" style="margin-top:12px"><label>登录密码</label><input type="password" id="pwL" class="ctl" placeholder="输入管理密码" onkeydown="if(event.key==='Enter')doLogin()"></div>
+          <button class="btn pri block lg" onclick="doLogin()">登 录</button>
+        </div>
+      </div>
+      <div class="muted" style="text-align:center;font-size:11.5px;margin-top:14px;line-height:1.7">
+        仅限自然人之间的合法借贷使用<br>严禁用于面向不特定公众的吸储或放贷
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+<div class="topbar"><div class="in">
+  <div class="logo">借</div>
+  <div class="ttl">朋友借条<small id="lenderNameTop">管理台</small></div>
+  <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+    <button class="iconbtn" onclick="showSettings()" title="设置">⚙</button>
+    <button class="iconbtn" onclick="doLogout()" title="退出">⎋</button>
+  </div>
+</div></div>
+
+<div class="wrap">
+  <!-- 首页仪表盘 -->
+  <div id="page-home">
+    <div class="card" style="background:linear-gradient(135deg,#1a5fb4,#2e8bdc);border:none;color:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div><div style="font-size:12px;opacity:.85">当前在外借款（本金）</div>
+        <div class="bigamount" id="outYuan" style="color:#fff">¥0.00</div></div>
+        <button class="btn pri2" onclick="openCreate()" style="border-radius:12px;padding:10px 16px">＋ 新建借条</button>
+      </div>
+      <div style="display:flex;gap:0;margin-top:16px;background:rgba(255,255,255,.14);border-radius:14px;padding:10px 0;text-align:center">
+        <div style="flex:1"><div style="font-size:18px;font-weight:800" id="stActive">0</div><div style="font-size:10.5px;opacity:.85">进行中</div></div>
+        <div style="flex:1"><div style="font-size:18px;font-weight:800;color:#ffd9a0" id="stOverdue">0</div><div style="font-size:10.5px;opacity:.85">已逾期</div></div>
+        <div style="flex:1"><div style="font-size:18px;font-weight:800;color:#b9f0d3" id="stTodayDue">0</div><div style="font-size:10.5px;opacity:.85">今日到期</div></div>
+        <div style="flex:1"><div style="font-size:18px;font-weight:800;color:#cfe4ff" id="stPaid">0</div><div style="font-size:10.5px;opacity:.85">已结清</div></div>
+      </div>
+    </div>
+    <div class="statgrid">
+      <div class="stat"><div class="k">累计确认还款</div><div class="v green" id="repayYuan">¥0.00</div></div>
+      <div class="stat"><div class="k">未还本息合计(估)</div><div class="v red" id="dueNowYuan">¥0.00</div></div>
+    </div>
+    <div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">借条列表</h3>
+        <div class="seg" style="margin:0;width:auto;flex:none">
+          <button data-f="active" class="on" onclick="setFilter('active',this)">进行中</button>
+          <button data-f="overdue" onclick="setFilter('overdue',this)">逾期</button>
+          <button data-f="paid" onclick="setFilter('paid',this)">已结清</button>
+          <button data-f="all" onclick="setFilter('all',this)">全部</button>
+        </div>
+      </div>
+      <div id="loanList" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- 设置页 -->
+  <div id="page-settings" class="hidden">
+    <div class="card">
+      <h3>👤 出借人信息（用于借条抬头）</h3>
+      <div class="field"><label>你的姓名</label><input id="sName" class="ctl" placeholder="如：钱某"></div>
+      <div class="field"><label>身份证号</label><input id="sIdcard" class="ctl" placeholder="选填，建议填写以便借条完整"></div>
+      <div class="field"><label>联系电话</label><input id="sPhone" class="ctl" placeholder="选填"></div>
+      <button class="btn pri block" onclick="saveSettings()">保存出借人信息</button>
+    </div>
+    <div class="card">
+      <h3>💳 还款收款方式</h3>
+      <div class="muted" style="font-size:12.5px;margin-bottom:12px">借款人将从这里扫码/转账还款。支持微信、支付宝收款码图片或银行账户。</div>
+      <div class="uploadqr" id="wechatRow">
+        <img id="wechatImg" src="" alt="微信收款码"><div style="flex:1">
+        <div style="font-weight:700;font-size:14px">微信收款码</div>
+        <div class="muted" style="font-size:12px;margin:2px 0 6px" id="wechatName">未设置</div>
+        <button class="btn pri2" style="padding:6px 12px;font-size:13px" onclick="pickQr('wechat')">上传/更换</button>
+        <button class="btn ghost" style="padding:6px 12px;font-size:13px" onclick="clearQr('wechat')">移除</button></div>
+      </div>
+      <div class="uploadqr" id="alipayRow">
+        <img id="alipayImg" src="" alt="支付宝收款码"><div style="flex:1">
+        <div style="font-weight:700;font-size:14px">支付宝收款码</div>
+        <div class="muted" style="font-size:12px;margin:2px 0 6px" id="alipayName">未设置</div>
+        <button class="btn pri2" style="padding:6px 12px;font-size:13px" onclick="pickQr('alipay')">上传/更换</button>
+        <button class="btn ghost" style="padding:6px 12px;font-size:13px" onclick="clearQr('alipay')">移除</button></div>
+      </div>
+      <div class="field" style="margin-top:4px"><label>银行卡信息（选填，展示给借款人）</label>
+        <textarea id="sBank" class="ctl" placeholder="户名 / 卡号 / 开户行，多行文本"></textarea></div>
+      <button class="btn pri block" onclick="savePay()">保存收款方式</button>
+      <div class="alert info" style="margin-top:12px">💡 借款人在还款页看到收款码后，通过微信/支付宝扫码转账给你，资金直接进入你的账户，不经本网站托管。</div>
+    </div>
+    <div class="card">
+      <h3>🔒 安全</h3>
+      <div class="field"><label>修改登录密码</label><input type="password" id="sPw" class="ctl" placeholder="留空则不修改"></div>
+      <button class="btn ghost block" onclick="saveSettings(true)">修改密码</button>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:12px;color:var(--sub);line-height:1.7">
+        借条利率请勿超过司法保护上限（一年期LPR×4，当前约12%/年）<br>
+        本工具仅辅助自然人朋友间借贷，不作任何资金托管与放贷平台
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bottomnav"><div class="in">
+  <button class="nitem on" id="nav-home" onclick="go('home')"><span class="ic">🏠</span>首页</button>
+  <button class="nitem" id="nav-settings" onclick="go('settings')"><span class="ic">⚙️</span>设置</button>
+</div></div>
+</div>
+
+<!-- 新建/编辑借条弹层 -->
+<div id="createSheet" class="mask hidden" onclick="if(event.target===this)closeModal('createSheet')">
+  <div class="sheet">
+    <button class="iconbtn sclose" onclick="closeModal('createSheet')">✕</button>
+    <h2>新建借条</h2>
+    <div class="field"><label>借款人姓名 *</label><input id="fName" class="ctl" placeholder="朋友真实姓名"></div>
+    <div class="field"><label>借款人手机号</label><input id="fPhone" class="ctl" type="tel" placeholder="用于联系提醒（选填）"></div>
+    <div class="field"><label>借款人身份证号</label><input id="fIdcard" class="ctl" placeholder="借条要素，强烈建议填写"></div>
+    <div class="field"><label>借款金额（元）*</label><input id="fAmount" class="ctl money" type="number" inputmode="decimal" min="0" placeholder="如 50000"></div>
+    <div class="field"><label>年利率（%）</label>
+      <input id="fRate" class="ctl money" type="number" inputmode="decimal" min="0" max="100" step="0.01" value="0" oninput="rateWarn()">
+      <div id="rateTip" class="alert warn hidden" style="margin:8px 0 0">⚠️ 超过 12% 的部分司法不予保护，仍要登记请先勾选确认。</div>
+      <label class="hidden" id="riskWrap" style="display:flex;gap:6px;align-items:center;margin-top:8px;font-weight:400;color:var(--warn)"><input type="checkbox" id="fRisk"> 我已了解：超上限利息不受法律保护</label>
+    </div>
+    <div class="row2">
+      <div class="field"><label>借款日期 *</label><input id="fStart" class="ctl" type="date"></div>
+      <div class="field"><label>到期还款日 *</label><input id="fEnd" class="ctl" type="date"></div>
+    </div>
+    <div id="calcTip" class="alert info hidden"></div>
+    <div class="field"><label>借款用途（选填）</label><input id="fPurpose" class="ctl" placeholder="如：生意周转 / 买房周转"></div>
+    <div class="field"><label>备注（选填）</label><textarea id="fNote" class="ctl" placeholder="其他约定，可写入借条"></textarea></div>
+    <button class="btn pri block lg" onclick="createLoan()">生成借条</button>
+  </div>
+</div>
+
+<!-- 借条详情弹层 -->
+<div id="detailSheet" class="mask center hidden" onclick="if(event.target===this)closeModal('detailSheet')">
+  <div class="sheet" style="max-width:560px">
+    <button class="iconbtn sclose" onclick="closeModal('detailSheet')">✕</button>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<div id="fileInputWrap" class="hidden"><input type="file" id="fileInput" accept="image/*" onchange=""></div>
+<div id="toast"></div>
+<script>
+let LPR4=12, curLoanId=null, curFilter='active', qrTarget='';
+const $=id=>document.getElementById(id);
+const fmtYuan=c=>(c/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2600)}
+function modal(id,show){$(id).classList.toggle('hidden',!show)}
+function closeModal(id){modal(id,false)}
+
+/* ---------- 状态初始化 ---------- */
+async function api(url,opt={}){
+  const r=await fetch(url,Object.assign({headers:{'Content-Type':'application/json'}},opt));
+  const j=await r.json().catch(()=>({ok:false,msg:'网络异常'}));
+  if(!r.ok && r.status===401 && !url.includes('login') && !url.includes('setup')){location.reload();throw new Error('401')}
+  return j;
+}
+async function init(){
+  const s=await api('/api/state');
+  LPR4=s.lpr4||12;
+  if(!s.loggedIn){show('loginView');hide('appView');
+    if(s.needSetup){hide('loginBox');show('setupBox')}else{show('loginBox');hide('setupBox')}
+    return;
+  }
+  show('appView');hide('loginView');
+  if(s.lender&&s.lender.name)$('lenderNameTop').textContent='· '+s.lender.name;
+  loadHome();
+}
+function show(id){$(id).classList.remove('hidden')}function hide(id){$(id).classList.add('hidden')}
+async function doSetup(){const a=$('pw1').value,b=$('pw2').value;if(a.length<6)return toast('密码至少6位');if(a!==b)return toast('两次输入不一致');
+  const r=await api('/api/setup',{method:'POST',body:JSON.stringify({password:a})});if(r.ok){toast('设置成功');init()}else toast(r.msg)}
+async function doLogin(){const r=await api('/api/login',{method:'POST',body:JSON.stringify({password:$('pwL').value})});if(r.ok){toast('欢迎回来');init()}else toast(r.msg)}
+async function doLogout(){await api('/api/logout',{method:'POST'});location.reload()}
+
+/* ---------- 首页 ---------- */
+let stats={},loans=[];
+async function loadHome(){
+  const r=await api('/api/loans?filter='+curFilter);
+  if(!r.ok)return;
+  loans=r.loans;stats=r.stats;
+  $('outYuan').textContent='¥'+fmtYuan(r.stats.outYuan*100);
+  $('stActive').textContent=r.stats.active;
+  $('stOverdue').textContent=r.stats.overdue;
+  $('stTodayDue').textContent=r.stats.todayDue;
+  $('stPaid').textContent=r.stats.paid;
+  $('repayYuan').textContent='¥'+r.stats.repayYuan;
+  $('dueNowYuan').textContent='¥'+r.stats.remainYuan;
+  renderLoans(r.loans);
+}
+function setFilter(f,btn){
+  curFilter=f;document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on',b===btn));
+  loadHome();
+}
+function loanTag(l){
+  const st=l.state;
+  const map={active:['进行中','active'],overdue:['⚠ 已逾期','overdue'],paid:['已结清','paid'],cancelled:['已作废','cancelled']};
+  const [txt,cls]=map[st]||['未知',''];
+  return `<span class="tag ${cls}">${txt}</span>`;
+}
+function renderLoans(list){
+  const box=$('loanList');
+  if(!list.length){box.innerHTML=`<div class="emptystate"><div class="eic">📄</div><div>暂无借条</div><div style="font-size:12.5px;margin-top:6px">点上方「＋ 新建借条」创建第一笔</div></div>`;return}
+  box.innerHTML=list.map(l=>{
+    const over=l.state==='overdue';
+    return `<div class="lcard" onclick="openDetail('${l.id}')">
+      <div class="top">
+        <div><div class="nm">${esc(l.borrower.name)}</div><div class="no">${esc(l.no)} · ${esc(l.purpose||'')}</div></div>
+        <div class="amt">${loanTag(l)}</div>
+      </div>
+      <div class="meta">
+        <span class="money">本金 ¥${l.amountYuan}</span>
+        ${l.ratePct>0?`<span>利率 ${l.ratePct}%/年</span>`:''}
+        <span>${l.startDate} → ${l.endDate}</span>
+      </div>
+      <div class="foot">
+        <span class="money" style="${over?'color:var(--danger);font-weight:700':''}">到期应还 ¥${l.dueTotalYuan}</span>
+        ${l.repaidCents>0?`<span class="money" style="color:var(--ok);font-weight:600">已还 ¥${l.repaidYuan}</span>`:`<span style="font-size:11.5px">${l.confirmedAt?'✓ 借款方已确认借条':'待借款方确认借条'}</span>`}
+      </div>
+    </div>`}).join('');
+}
+function go(p){hide('page-home');hide('page-settings');show(p==='home'?'page-home':'page-settings');
+  document.querySelectorAll('.nitem').forEach(b=>b.classList.toggle('on',b.id==='nav-'+p));
+  if(p==='home')loadHome();if(p==='settings')loadSettings();
+}
+
+/* ---------- 新建借条 ---------- */
+function rateWarn(){
+  const v=parseFloat($('fRate').value)||0;
+  const w=v>LPR4;
+  $('rateTip').classList.toggle('hidden',!w);
+  $('riskWrap').classList.toggle('hidden',!w);
+  calcTip();
+}
+function calcTip(){
+  const amt=parseFloat($('fAmount').value)||0, rate=parseFloat($('fRate').value)||0, s=$('fStart').value, e=$('fEnd').value;
+  if(!amt||!s||!e)return;
+  const d1=new Date(s),d2=new Date(e);if(d2<d1)return;
+  const days=Math.round((d2-d1)/86400000);
+  const interest=days>0?Math.round(amt*rate*days/36500)/100:0;
+  const due=amt+interest;
+  $('calcTip').classList.remove('hidden');
+  $('calcTip').innerHTML=`📅 借期 ${days} 天${rate>0?`，到期利息约 <b>¥${interest.toFixed(2)}</b>`:'（无息）'}，<b>到期共还 ¥${due.toFixed(2)}</b>`;
+}
+function openCreate(){
+  ['fName','fPhone','fIdcard','fAmount','fPurpose','fNote'].forEach(i=>$(i).value='');
+  $('fRate').value='0';$('fRisk').checked=false;
+  const t=new Date(),t2=new Date(t);t2.setMonth(t2.getMonth()+12);
+  $('fStart').value=t.toISOString().slice(0,10);$('fEnd').value=t2.toISOString().slice(0,10);
+  rateWarn();calcTip();modal('createSheet',true);
+  $('fName').focus();
+}
+async function createLoan(){
+  const body={name:$('fName').value.trim(),phone:$('fPhone').value.trim(),idcard:$('fIdcard').value.trim(),
+    amount:$('fAmount').value,ratePct:$('fRate').value,startDate:$('fStart').value,endDate:$('fEnd').value,
+    purpose:$('fPurpose').value.trim(),note:$('fNote').value.trim()};
+  const rate=parseFloat(body.ratePct)||0;
+  if(rate>LPR4)body.riskAck=$('fRisk').checked;
+  const r=await api('/api/loans',{method:'POST',body:JSON.stringify(body)});
+  if(!r.ok)return toast(r.msg);
+  modal('createSheet',false);toast('借条已生成');
+  await loadHome();
+  openDetail(r.loan.id);
+}
+
+/* ---------- 详情 ---------- */
+let detailLoan=null,detailLink='';
+async function openDetail(id){
+  const r=await api('/api/loans/'+id);if(!r.ok)return toast(r.msg);
+  curLoanId=id;detailLoan=r.loan;detailLink=r.link;
+  renderDetail();modal('detailSheet',true);
+}
+function repayRow(r,loanId){
+  const stTxt={pending:['待你确认到账','tag pending'],confirmed:['✓ 已确认到账','tag paid'],rejected:['已驳回','tag cancelled']}[r.status]||['',''];
+  const mth={wechat:'微信',alipay:'支付宝',bank:'银行卡转账',cash:'现金',wxpay:'微信在线支付'}[r.method]||r.method;
+  return `<div class="list-item">
+    <div class="r1"><span>${mth} · ¥${r.amountYuan}</span><span class="tag ${stTxt[1]}">${stTxt[0]}</span></div>
+    <div class="r2">${esc(r.ref?('单号/备注：'+r.ref+' · '):'')}${new Date(r.submittedAt).toLocaleString('zh-CN')}</div>
+    ${r.voucher?`<div style="margin-top:8px"><img src="${r.voucher}" onclick="event.stopPropagation();window.open(this.src)" style="width:100%;border-radius:10px;border:1px solid var(--line);max-height:200px;object-fit:cover"></div>`:''}
+    ${r.status==='pending'?`<div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn green" style="flex:1;padding:9px" onclick="confirmRepay('${loanId}','${r.id}')">✓ 确认到账</button>
+      <button class="btn danger" style="flex:1;padding:9px" onclick="rejectRepay('${loanId}','${r.id}')">驳回</button>
+    </div>`:''}
+    ${r.confirmNote?`<div class="muted" style="font-size:12px;margin-top:6px">${esc(r.confirmNote)}</div>`:''}
+  </div>`;
+}
+async function confirmRepay(loanId,rid){
+  const preset=detailLoan.repayments.find(x=>x.id===rid);
+  const custom=prompt('实际到账金额（元），确认金额可与提交金额不同：',preset?preset.amountYuan:'');
+  if(custom===null)return;
+  const note=prompt('备注（选填，如已还部分本金）：','')||'';
+  const r=await api(`/api/loans/${loanId}/repay/${rid}/confirm`,{method:'POST',body:JSON.stringify({actualAmount:custom,note})});
+  if(!r.ok)return toast(r.msg);
+  toast(r.loan.status==='paid'?'🎉 已结清！':r.loan.repaidCents>0?'已确认到账（部分还款）':'已确认到账');
+  detailLoan=r.loan;renderDetail();loadHome();
+}
+async function rejectRepay(loanId,rid){
+  const note=prompt('驳回原因（选填）：','')||'已驳回';
+  const r=await api(`/api/loans/${loanId}/repay/${rid}/reject`,{method:'POST',body:JSON.stringify({note})});
+  if(!r.ok)return toast(r.msg);detailLoan=r.loan;renderDetail();
+}
+function renderDetail(){
+  const l=detailLoan;
+  const paidTotal=l.dueTotalCents, repaid=l.repaidCents, remain=l.dueTotalCents-repaid;
+  const st={active:'进行中',overdue:'已逾期',paid:'已结清',cancelled:'已作废'}[l.state]||'';
+  const stCls={active:'active',overdue:'overdue',paid:'paid',cancelled:'cancelled'}[l.state];
+  $('detailBody').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">${esc(l.borrower.name)} 的借条</h2><span class="tag ${stCls}">${st}</span></div>
+    <div class="muted" style="font-size:12px;margin-bottom:12px">${esc(l.no)} · 创建于 ${new Date(l.createdAt).toLocaleDateString('zh-CN')}</div>
+
+    <div class="card" style="background:${l.state==='overdue'?'var(--danger-bg)':l.state==='paid'?'var(--ok-bg)':'var(--brand-2)'};border:none">
+      ${l.state==='overdue'?`<div style="font-size:13px;color:var(--danger);font-weight:700;margin-bottom:2px">⚠ 已逾期（${Math.max(0,Math.round((new Date()-new Date(l.endDate))/86400000))}天）</div>`:''}
+      <div style="font-size:12.5px;color:var(--sub)">${l.status==='paid'?'已结清，累计还款':'到期应还总额'}</div>
+      <div class="bigamount" style="color:${l.state==='overdue'?'var(--danger)':l.state==='paid'?'var(--ok)':'var(--brand)'}">¥${fmtYuan(l.dueTotalCents)}</div>
+      ${l.status!=='paid'&&remain>0?`<div style="font-size:12.5px;color:var(--sub);margin-top:4px">本金 ¥${fmtYuan(l.amountCents)}${l.ratePct>0?` + 利息 ¥${fmtYuan(l.interestCents)}`:''} · 剩余待收 <b style="color:var(--warn)">¥${fmtYuan(remain)}</b></div>`:`<div style="font-size:12.5px;color:var(--sub);margin-top:4px">本金 ¥${fmtYuan(l.amountCents)}${l.ratePct>0?` + 利息 ¥${fmtYuan(l.interestCents)}`:''}</div>`}
+    </div>
+
+    <div class="kv"><span class="k">借款日期</span><span class="v">${l.startDate}</span></div>
+    <div class="kv"><span class="k">到期还款日</span><span class="v" style="${l.state==='overdue'?'color:var(--danger)':''}">${l.endDate}${l.state==='overdue'?'（已逾期）':''}</span></div>
+    <div class="kv"><span class="k">借款本金</span><span class="v money">¥${fmtYuan(l.amountCents)}</span></div>
+    <div class="kv"><span class="k">年利率</span><span class="v">${l.ratePct>0?l.ratePct+'%':(l.ratePct===0?'无息':'—')}</span></div>
+    <div class="kv"><span class="k">借期利息</span><span class="v money">¥${fmtYuan(l.interestCents)}</span></div>
+    ${l.purpose?`<div class="kv"><span class="k">用途</span><span class="v">${esc(l.purpose)}</span></div>`:''}
+    ${l.note?`<div class="kv"><span class="k">备注</span><span class="v" style="font-weight:400">${esc(l.note)}</span></div>`:''}
+    <div class="kv"><span class="k">借条确认</span><span class="v">${l.confirmedAt?`<span style="color:var(--ok)">✓ ${new Date(l.confirmedAt).toLocaleString('zh-CN')}</span>`:'<span style="color:var(--warn)">待借款方在还款页确认</span>'}</span></div>
+
+    ${l.state!=='paid'&&l.state!=='cancelled'?`
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn pri2" style="flex:1;padding:11px" onclick="copyText(detailLink,'还款链接')">🔗 复制还款链接</button>
+      <button class="btn pri" style="flex:1;padding:11px" onclick="showQr()">▦ 显示二维码</button>
+    </div>
+    <button class="btn green block" style="margin-top:10px" onclick="notifyFriend()">📲 提醒对方还款</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="copyContract()">📄 复制借条全文</button>`:''}
+
+    <h3 style="margin:18px 0 8px">还款记录（${l.repayments.length}）</h3>
+    ${l.repayments.length?l.repayments.map(r=>repayRow(r,l.id)).join(''):`<div class="empty-tip">暂无还款记录</div>`}
+
+    <h3 style="margin:18px 0 8px">借条全文</h3>
+    <div id="contractBox" style="background:var(--bg);border:1px dashed var(--line);border-radius:12px;padding:14px;font-family:serif;font-size:13.5px;line-height:1.9;white-space:pre-wrap;max-height:260px;overflow:auto" onclick="copyContract()"></div>
+
+    ${l.state!=='cancelled'&&l.state!=='paid'?`<div style="display:flex;gap:8px;margin-top:14px"><button class="btn danger" style="flex:1" onclick="cancelLoan()">作废借条</button></div>`:l.state==='cancelled'?`<div style="display:flex;gap:8px;margin-top:14px"><button class="btn green" style="flex:1" onclick="reactivateLoan()">恢复借条</button></div>`:''}
+    ${l.state==='paid'?`<div style="display:flex;gap:8px;margin-top:14px"><button class="btn ghost" style="flex:1" onclick="cancelLoan()">改为未结清</button></div>`:''}
+  `;
+  $('contractBox').textContent=buildContract(l);
+  $('contractBox').style.cursor='pointer';
+  document.querySelector('#detailSheet h2')?.remove();
+}
+function buildContract(l){
+  const R=rmbUpper(l.amountCents/100);
+  const lines=[
+    `借 条（编号：${l.no}）`,
+    ``,
+    `出借人：${l.lender.name||'（待填写）'}${l.lender.idcard?'（身份证号：'+l.lender.idcard+'）':''}`,
+    `借款人：${l.borrower.name}${l.borrower.idcard?'（身份证号：'+l.borrower.idcard+'）':''}${l.borrower.phone?'（电话：'+l.borrower.phone+'）':''}`,
+    ``,
+    `今借款人${l.borrower.name}因${l.purpose||'资金周转'}需要，向出借人${l.lender.name||'（出借人）'}借到人民币 ${R}（小写：¥${fmtYuan(l.amountCents)}），借款期限自 ${l.startDate} 至 ${l.endDate}，共计 ${l.days} 天。`,
+    l.ratePct>0?`双方约定年利率为 ${l.ratePct}%（不超过司法保护上限），到期一次性还本付息。`:`双方约定无利息，到期归还本金。`,
+    `借款人应于 ${l.endDate} 前通过银行转账/微信/支付宝等方式全额归还本息。`,
+    l.note?`特别约定：${l.note}`:``,
+    ``,
+    `出借人：${l.lender.name||'____'}　　借款人：${l.borrower.name}`,
+    `日期：${l.startDate}（本借条经借款人在线确认，确认时间记录于系统，与书面借条同等效力）`,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+function rmbUpper(n){
+  const CN=['零','壹','贰','叁','肆','伍','陆','柒','捌','玖'];
+  const U=['','拾','佰','仟'], B=['','万','亿'];
+  const total=Math.round(n*100);
+  const y=Math.floor(total/100), j=Math.floor(total%100/10), f=total%10;
+  if(y===0&&j===0&&f===0)return '零元整';
+  function seg4(v){
+    if(v===0)return '';
+    const d=[Math.floor(v/1000)%10,Math.floor(v/100)%10,Math.floor(v/10)%10,v%10];
+    let out='',pendingZero=false;
+    for(let i=0;i<4;i++){
+      if(d[i]===0){if(out)pendingZero=true;}
+      else{if(pendingZero)out+='零';out+=CN[d[i]]+(i<3?U[3-i]:'');pendingZero=false;}
+    }
+    return out;
+  }
+  let s='';
+  if(y>0){
+    const parts=[];let x=y,lv=0;
+    while(x>0){parts.push([x%10000,lv]);x=Math.floor(x/10000);lv++;}
+    for(let k=parts.length-1;k>=0;k--){
+      const [v,bi]=parts[k],t=seg4(v);
+      if(t){
+        if(k<parts.length-1&&v<1000&&s&&!s.endsWith('零'))s+='零';
+        s+=t+B[bi];
+      }
+    }
+    s+='元';
+  }else s='零元';
+  if(j||f){if(j)s+=CN[j]+'角';else if(f)s+='零';if(f)s+=CN[f]+'分';}
+  else s+='整';
+  return s;
+}
+function copyContract(){copyText(buildContract(detailLoan),'借条全文')}
+function notifyFriend(){
+  const l=detailLoan;
+  const over=l.state==='overdue'?'【重要】您的借款已逾期，请尽快还款。':'';
+  const txt=`您好${l.borrower.name}，这是您的借款还款链接，请查收：\n\n借款人：${l.borrower.name}\n本金：¥${fmtYuan(l.amountCents)}\n${l.ratePct>0?'年利率：'+l.ratePct+'%':'无息借款'}\n到期日：${l.endDate}\n应还总额：¥${fmtYuan(l.dueTotalCents)}\n\n${over}\n请点击链接查看借条并还款：\n${detailLink}`;
+  copyText(txt,'提醒文本（可直接粘贴发给对方）');
+}
+function copyText(txt,label){
+  if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(txt).then(()=>toast(label+'已复制'),()=>fallbackCopy(txt,label))}
+  else fallbackCopy(txt,label);
+}
+function fallbackCopy(txt,label){
+  const ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast(label+'已复制')}catch(e){toast('复制失败，请长按手动复制')}document.body.removeChild(ta);
+}
+async function showQr(){
+  const r=await api('/api/loans/'+curLoanId+'/qrcode');if(!r.ok)return toast(r.msg);
+  const mask=document.createElement('div');mask.className='mask center';mask.onclick=()=>mask.remove();
+  mask.innerHTML=`<div class="sheet" style="text-align:center;max-width:340px">
+    <h2 style="text-align:center">扫码打开还款页</h2>
+    <div class="qrbox"><img src="${r.dataUrl}"></div>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">让对方用「微信/相机」扫一扫，即可打开自己的借条并还款</div>
+    <button class="btn pri2 block" onclick="copyText('${r.url}','还款链接')">复制链接</button>
+  </div>`;
+  document.body.appendChild(mask);
+}
+async function cancelLoan(){if(!confirm('确定作废该借条？作废后借款人无法再还款。'))return;
+  await api('/api/loans/'+curLoanId+'/status',{method:'POST',body:JSON.stringify({status:'cancelled'})});toast('已作废');loadHome();openDetail(curLoanId)}
+async function reactivateLoan(){await api('/api/loans/'+curLoanId+'/status',{method:'POST',body:JSON.stringify({status:'reactivate'})});toast('已恢复');loadHome();openDetail(curLoanId)}
+
+/* ---------- 设置 ---------- */
+let paySetting={};
+async function loadSettings(){
+  const s=await api('/api/state');
+  $('sName').value=s.lender.name||'';$('sIdcard').value=s.lender.idcard||'';$('sPhone').value=s.lender.phone||'';$('sPw').value='';
+  const pay=await api('/api/settings/pay');
+}
+async function getPay(){const r=await fetch('/api/settings/pay');return r.json()}
+async function refreshPay(){
+  const p=await getPay();
+  if(!p.ok)return;
+  $('wechatImg').src=p.wechatImg||'';$('wechatName').textContent=p.wechatImg?'已设置':'未设置';
+  $('alipayImg').src=p.alipayImg||'';$('alipayName').textContent=p.alipayImg?'已设置':'未设置';
+  $('sBank').value=p.bank||'';
+}
+function pickQr(type){
+  qrTarget=type;
+  const fi=$('fileInput');fi.onchange=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const fd=new FormData();fd.append('image',f);fd.append('type',type);
+    fetch('/api/upload-payqr',{method:'POST',body:fd}).then(r=>r.json()).then(j=>{
+      if(j.ok){toast('上传成功');refreshPay()}else toast(j.msg||'上传失败');
+    });
+    fi.value='';
+  };
+  fi.click();
+}
+async function clearQr(type){
+  const p=await getPay();
+  const pay={...p};
+  if(type==='wechat')pay.wechatImg=null;else pay.alipayImg=null;
+  await api('/api/settings/pay',{method:'PUT',body:JSON.stringify(pay)});
+  refreshPay();
+}
+async function saveSettings(isPw){
+  const body={lender:{name:$('sName').value.trim(),idcard:$('sIdcard').value.trim(),phone:$('sPhone').value.trim()}};
+  if(isPw&&$('sPw').value){body.password=$('sPw').value;if(body.password.length<6)return toast('密码至少6位')}
+  const r=await api('/api/settings',{method:'PUT',body:JSON.stringify(body)});
+  if(!r.ok)return toast(r.msg);
+  toast(isPw?'密码已修改':'出借人信息已保存');
+  if(isPw){$('sPw').value=''}
+  const s=await api('/api/state');if(s.lender&&s.lender.name)$('lenderNameTop').textContent='· '+s.lender.name;
+}
+async function savePay(){
+  const pay=await getPay();pay.bank=$('sBank').value;
+  const r=await api('/api/settings/pay',{method:'PUT',body:JSON.stringify(pay)});
+  if(r.ok)toast('收款方式已保存');
+}
+window.addEventListener('DOMContentLoaded',init);
+// 日期输入默认
+$('fStart')&&($('fStart').onchange=calcTip,$('fEnd').onchange=calcTip,$('fAmount').oninput=calcTip,$('fRate').oninput=rateWarn);
+</script>
+</body>
+</html>

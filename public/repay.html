@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a5fb4">
+<title>借条还款</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f2f5f9;--card:#fff;--line:#e3e8ef;
+  --ink:#1b2733;--sub:#71809a;
+  --brand:#1a5fb4;--brand2:#e9f1fb;
+  --ok:#17a05c;--okbg:#e6f7ee;
+  --warn:#c7740a;--warnbg:#fdf3e2;
+  --danger:#d64545;--dangerbg:#fdecec;
+  --radius:18px;
+  --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.55}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+.wrap{max-width:520px;margin:0 auto;padding:0 14px calc(30px + var(--safe-b))}
+/* 顶部 */
+.hero{position:relative;overflow:hidden;background:linear-gradient(150deg,#16324f,#1a5fb4 60%,#2e8bdc);color:#fff;padding:26px 20px calc(70px + var(--safe-t));margin-bottom:-46px;text-align:center}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.08)}
+.hero::before{content:"";position:absolute;left:-40px;bottom:-80px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.05)}
+.hero .seal{width:44px;height:44px;border-radius:14px;background:rgba(255,255,255,.16);backdrop-filter:blur(6px);display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;letter-spacing:1px}
+.hero h1{font-size:19px;margin:10px 0 2px;font-weight:800;letter-spacing:1px}
+.hero .sub{font-size:12px;opacity:.82}
+/* 金额卡 */
+.amtcard{position:relative;z-index:2;background:var(--card);border-radius:22px;box-shadow:0 10px 30px rgba(15,40,80,.14);padding:20px;margin:0 0 16px;border:1px solid var(--line);text-align:center}
+.amtcard .lbl{font-size:13px;color:var(--sub)}
+.amtcard .big{font-size:40px;font-weight:800;letter-spacing:.5px;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.amtcard .big small{font-size:20px;font-weight:700}
+.amtcard .due{font-size:12.5px;color:var(--sub)}
+.tagpill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 12px;font-size:12.5px;font-weight:700;margin-bottom:8px}
+.pill-overdue{background:var(--dangerbg);color:var(--danger)}
+.pill-paid{background:var(--okbg);color:var(--ok)}
+.pill-active{background:var(--brand2);color:var(--brand)}
+.pill-warn{background:var(--warnbg);color:var(--warn)}
+/* 卡片 */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+.card h3 .ic{font-size:18px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.kv:last-child{border-bottom:none}
+.kv .k{color:var(--sub);flex:none}
+.kv .v{text-align:right;font-weight:600;word-break:break-all}
+/* 按钮 */
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;border-radius:14px;padding:14px;font-weight:700;font-size:16px;transition:.15s}
+.btn:active{transform:scale(.98)}
+.btn.pri{background:linear-gradient(135deg,#1a5fb4,#2e8bdc);color:#fff;box-shadow:0 6px 16px rgba(26,95,180,.3)}
+.btn.green{background:linear-gradient(135deg,#129a5c,#1fbf72);color:#fff;box-shadow:0 6px 16px rgba(23,160,92,.3)}
+.btn.ghost{background:#fff;border:1.5px solid var(--line);color:var(--ink);font-weight:600}
+.btn.brand2{background:var(--brand2);color:var(--brand);font-weight:700}
+.btn:disabled{opacity:.6;box-shadow:none;cursor:not-allowed}
+/* 收款方式切换 */
+.paytabs{display:flex;gap:6px;margin-bottom:12px}
+.paytab{flex:1;border:1.5px solid var(--line);border-radius:12px;padding:9px 4px;text-align:center;font-size:13px;font-weight:600;color:var(--sub);background:#fff;transition:.15s}
+.paytab.on{border-color:var(--brand);color:var(--brand);background:var(--brand2)}
+.paytab .pi{font-size:20px;display:block;margin-bottom:2px}
+.qrcard{text-align:center;padding:14px;border:1px dashed var(--brand);border-radius:14px;background:var(--brand2)}
+.qrcard img{width:200px;height:200px;object-fit:contain;border-radius:12px;background:#fff;padding:8px;border:1px solid var(--line)}
+.qrcard .t1{font-weight:700;margin:8px 0 2px}
+.qrcard .t2{font-size:12.5px;color:var(--sub);line-height:1.6}
+.bankcard{border:1.5px solid var(--line);border-radius:14px;padding:12px;white-space:pre-wrap;font-size:14px;line-height:1.7;background:var(--bg);word-break:break-all}
+.notice{background:var(--warnbg);color:#7a4a05;border-radius:12px;padding:10px 13px;font-size:13px;line-height:1.6;margin:12px 0}
+.notice.blue{background:var(--brand2);color:#14487e}
+.notice.green{background:var(--okbg);color:#0b6a40}
+.notice.red{background:var(--dangerbg);color:var(--danger)}
+.wxcard{border:1.5px solid var(--ok);border-radius:14px;padding:16px;background:var(--okbg);text-align:left}
+.wxcard .qrcard{border-color:var(--ok);background:#fff}
+.or-split{display:flex;align-items:center;gap:10px;color:#9aa7b8;font-size:12px;margin:16px 0 4px}
+.or-split::before,.or-split::after{content:'';flex:1;height:1px;background:var(--line)}
+/* 表单 */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:5px;font-weight:600}
+.ctl{width:100%;border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:11px 13px;font-size:15px;outline:none;transition:.15s}
+.ctl:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(26,95,180,.12)}
+textarea.ctl{resize:vertical;min-height:70px}
+.uploadbox{border:1.5px dashed var(--line);border-radius:12px;padding:14px;text-align:center;color:var(--sub);font-size:13px;cursor:pointer;transition:.15s;background:var(--bg)}
+.uploadbox.on{border-color:var(--ok);color:var(--ok);background:var(--okbg)}
+.uploadbox img{max-width:100%;max-height:160px;border-radius:8px}
+/* 成功/状态 */
+.bigcheck{width:76px;height:76px;border-radius:50%;margin:18px auto 10px;display:flex;align-items:center;justify-content:center;font-size:38px}
+.gc{background:var(--okbg);color:var(--ok)}
+.wc{background:var(--warnbg);color:var(--warn)}
+.hc{background:var(--brand2);color:var(--brand)}
+/* 契约文本 */
+.contract{background:var(--bg);border:1px dashed var(--line);border-radius:12px;padding:14px;font-size:13.5px;line-height:1.9;white-space:pre-wrap;color:#33404f}
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(12,22,38,.55);z-index:40;display:flex;align-items:flex-end;justify-content:center;animation:fade .2s}
+.mask.center{align-items:center;padding:18px}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{background:#fff;border-radius:24px 24px 0 0;width:100%;max-width:520px;max-height:90vh;overflow:auto;padding:18px 16px calc(22px + var(--safe-b));animation:up .25s}
+.mask.center .sheet{border-radius:22px}
+@keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:translateY(0);opacity:1}}
+.sheet h2{margin:0 0 12px;font-size:17px;text-align:center}
+#toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(10px);background:rgba(27,39,51,.95);color:#fff;padding:10px 20px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:84vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.sec-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--sub);margin:18px 0 10px}
+.sec-title::after{content:"";flex:1;height:1px;background:var(--line)}
+.flow{display:flex;align-items:center;gap:5px;padding:4px 0}
+.flow .nd{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:#e7ebf2;color:#8b97a6;flex:none}
+.flow .nd.done{background:var(--ok);color:#fff}
+.flow .nd.now{background:var(--warn);color:#fff}
+.flow .tx{font-size:13px}
+.flow .tx.done{color:var(--ok);font-weight:600}
+.flow .tx.now{color:var(--warn);font-weight:700}
+.flowbar{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.flowbar i{width:2px;height:22px;background:#e7ebf2;border-radius:2px}
+.flowbar i.done{background:var(--ok)}
+</style>
+</head>
+<body>
+<div id="loading" style="display:flex;min-height:92vh;align-items:center;justify-content:center;color:var(--sub);font-size:14px">
+  <div style="text-align:center"><div style="font-size:34px;margin-bottom:8px">⏳</div>正在核对借条信息…</div>
+</div>
+<div id="main" class="hidden">
+  <div class="hero">
+    <div class="seal">借</div>
+    <h1>还款 · 借条确认</h1>
+    <div class="sub" id="heroNo"></div>
+  </div>
+  <div class="wrap" style="padding-top:0">
+    <div class="amtcard">
+      <span class="tagpill" id="statePill">加载中</span>
+      <div class="lbl" id="amtLbl">到期应还总额</div>
+      <div class="big" id="dueBig">¥0.00</div>
+      <div class="due" id="amtSub"></div>
+    </div>
+    <div class="card">
+      <h3><span class="ic">📋</span>借条信息</h3>
+      <div class="kv"><span class="k">出借人</span><span class="v" id="dLender"></span></div>
+      <div class="kv"><span class="k">借款人</span><span class="v" id="dBorrower"></span></div>
+      <div class="kv"><span class="k">借款本金</span><span class="v money" id="dAmount"></span></div>
+      <div class="kv" id="rateRow"><span class="k">年利率</span><span class="v" id="dRate"></span></div>
+      <div class="kv"><span class="k">借款期间</span><span class="v" id="dPeriod"></span></div>
+      <div class="kv" id="purposeRow"><span class="k">借款用途</span><span class="v" id="dPurpose"></span></div>
+      <div style="margin-top:12px"><button class="btn brand2" onclick="showContract()">📄 查看借条全文并确认</button></div>
+    </div>
+
+    <!-- 未确认借条时的提醒 -->
+    <div id="confirmWarnBox" class="hidden">
+      <div class="notice red" style="margin:0">请先点上方按钮查看并确认借条内容，确认后再进行还款。</div>
+    </div>
+
+    <!-- 待确认还款 / 已结清 -->
+    <div id="doneBox" class="hidden"></div>
+
+    <!-- 还款操作区 -->
+    <div id="overdueNote"></div>
+    <div id="actionBox">
+      <!-- 微信 Native 在线支付（若出借人已配置商户，默认首选） -->
+      <div id="wxpayBox" class="hidden">
+        <div class="sec-title">✅ 微信在线还款（自动到账）</div>
+        <div id="wxpayInit">
+          <div class="wxcard">
+            <div style="font-size:15px;font-weight:700">本笔仍需归还 <b style="font-size:20px;color:var(--ok)">¥<span id="wxRemain"></span></b></div>
+            <div style="color:var(--sub);font-size:12.5px;margin:6px 0 14px;line-height:1.6">点击生成微信收款码，用微信「扫一扫」支付。支付成功后系统自动确认到账，无需再传凭证。</div>
+            <button class="btn pri" style="width:100%" onclick="wxCreate()" id="wxCreateBtn">⚡ 生成微信收款码</button>
+          </div>
+        </div>
+        <div id="wxpayQr" class="hidden" style="text-align:center">
+          <div class="qrcard" style="border-color:var(--ok)">
+            <img id="wxQrImg" style="width:230px;height:230px;border-radius:10px" alt="微信收款码">
+            <div class="t1">微信扫码支付</div>
+            <div class="t2">请用微信「扫一扫」扫描二维码完成支付。<br>支付成功后本页将自动更新。</div>
+          </div>
+          <div id="wxpayState" style="color:var(--sub);font-size:12.5px;margin:10px 0">⏳ 等待支付…</div>
+          <button class="btn ghost" style="margin-top:4px" onclick="wxOffline()">改用线下转账方式</button>
+        </div>
+        <div class="or-split"><button class="btn ghost" style="width:auto;margin:0;padding:7px 18px;font-size:13px" onclick="wxOffline()">线下转账后提交凭证</button></div>
+      </div>
+
+      <!-- 线下转账 + 凭证确认 -->
+      <div id="offlineBox" class="hidden">
+        <div class="sec-title">💰 还款方式</div>
+        <div class="paytabs" id="payTabs"></div>
+        <div id="payPanel"></div>
+        <div class="notice blue" style="margin:12px 0 0">
+          💡 请先按上方方式转账给<b>出借人本人</b>，再填写下方凭证提交。资金直接到出借人账户，<b>不经过本网站</b>。
+        </div>
+      <div class="sec-title">📮 填写还款凭证</div>
+      <div class="field"><label>转账金额（元）*</label><input id="payAmount" class="ctl money" type="number" inputmode="decimal" min="0.01" placeholder="填写实际转账金额"></div>
+      <div class="field"><label>转账单号 / 备注</label><input id="payRef" class="ctl" placeholder="如微信转账单号或留言（选填）"></div>
+      <div class="field"><label>付款备注给出借人（选填）</label><input id="payNote" class="ctl" placeholder="写清是哪一笔借款"></div>
+      <div class="field"><label>转账凭证截图（选填，建议上传）</label>
+        <div class="uploadbox" id="uploadBox" onclick="pickVoucher()">
+          <div id="upInner">📷 点击上传微信/支付宝转账截图</div>
+        </div>
+        <input type="file" id="voucherInput" class="hidden" accept="image/*,.pdf">
+      </div>
+      <button class="btn green" style="margin-top:6px" id="submitBtn" onclick="submitPay()">✅ 我已转账，提交凭证</button>
+      <div class="notice" style="margin-top:14px">提交后出借人会核对到账情况并确认。如遇金额不符等情况，以出借人最终确认为准。</div>
+      </div><!-- /offlineBox -->
+    </div>
+    <div style="text-align:center;padding:14px 0 6px;color:#9aa7b8;font-size:11px;line-height:1.7">
+      本页面仅用于朋友间借贷的借条确认与还款记录<br>年利率超过司法保护上限部分不受法律保护 · 本工具不作资金托管
+    </div>
+  </div>
+</div>
+
+<!-- 借条全文确认 -->
+<div id="contractMask" class="mask center hidden" onclick="if(event.target===this)hideMask('contractMask')">
+  <div class="sheet">
+    <h2>借条全文</h2>
+    <div class="contract" id="contractText"></div>
+    <div style="margin-top:14px">
+      <button class="btn pri" id="confirmBtn" onclick="confirmContract()">✍️ 我确认以上借条内容</button>
+      <button class="btn ghost" style="margin-top:8px" onclick="hideMask('contractMask')">再看看</button>
+    </div>
+  </div>
+</div>
+
+<!-- 提交成功 -->
+<div id="successMask" class="mask center hidden">
+  <div class="sheet" style="text-align:center;max-width:380px">
+    <div class="bigcheck wc">✓</div>
+    <h2 style="margin-bottom:6px">凭证已提交</h2>
+    <div style="color:var(--sub);font-size:14px;line-height:1.7" id="successTxt"></div>
+    <button class="btn pri" style="margin-top:14px" onclick="location.reload()">查看当前状态</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2800)}
+function hideMask(id){$(id).classList.add('hidden')}
+function showMask(id){$(id).classList.remove('hidden')}
+let LOAN=null,payTab='wechat';
+let WX_NO=null,WX_POLL=null,WX_SHOW_OFFLINE=false;
+const TOKEN=location.pathname.split('/').filter(Boolean).pop();
+
+async function load(){
+  try{
+    const r=await fetch('/api/p/'+TOKEN);
+    const j=await r.json();
+    if(!j.ok){document.getElementById('loading').innerHTML=`<div style="text-align:center"><div style="font-size:40px">🔍</div><div style="margin-top:8px;font-weight:600">${esc(j.msg||'未找到记录')}</div><div style="margin-top:18px;color:var(--sub);font-size:13px">请联系出借人核对链接</div></div>`;return}
+    LOAN=j.loan;render();
+  }catch(e){document.getElementById('loading').innerHTML='<div style="text-align:center">网络异常，请稍后重试 <button class="btn ghost" style="width:auto;margin:14px auto 0;padding:8px 22px;font-size:14px" onclick="location.reload()">重试</button></div>'}
+}
+function stateMeta(){
+  const s=LOAN.state;
+  if(s==='paid')return['pill-paid','✅ 已结清','到期应还总额','还清了 🎉']
+  if(s==='cancelled')return['pill-active','⏸ 已作废','借条金额','该借条已作废']
+  if(s==='overdue')return['pill-overdue','⚠️ 已逾期','到期应还总额（不含逾期加算）','']
+  return['pill-active','⏳ 待还款','到期应还总额','']
+}
+function render(){
+  $('loading').classList.add('hidden');
+  $('main').classList.remove('hidden');
+  $('heroNo').textContent=LOAN.no||'';
+  const [pillCls,pillTxt,amtLbl]=stateMeta();
+  $('statePill').className='tagpill '+pillCls;
+  $('statePill').textContent=pillTxt;
+  $('amtLbl').textContent=amtLbl;
+  $('dueBig').textContent='¥'+fmt(LOAN.dueTotalCents);
+  const subParts=[];
+  subParts.push(`本金 ¥${fmt(LOAN.amountCents)}`);
+  if(LOAN.ratePct>0)subParts.push(`利息 ¥${fmt(LOAN.interestCents)}`);
+  if(LOAN.repaidCents>0)subParts.push(`已还 ¥${fmt(LOAN.repaidCents)}`);
+  $('amtSub').textContent=subParts.join('　');
+  $('dLender').textContent=LOAN.lender.name?esc(LOAN.lender.name):'(见借条全文)';
+  $('dBorrower').textContent=esc(LOAN.borrower.name)+(LOAN.borrower.phone?('（'+esc(LOAN.borrower.phone)+'）'):'');
+  $('dAmount').textContent='¥'+fmt(LOAN.amountCents)+'（'+rmbUpper(LOAN.amountCents/100)+'）';
+  $('dRate').textContent=LOAN.ratePct>0?LOAN.ratePct+'%（按日单利）':'无息借款';
+  $('dPeriod').textContent=`${LOAN.startDate} 至 ${LOAN.endDate}（${LOAN.days}天）`;
+  $('purposeRow').classList.toggle('hidden',!LOAN.purpose);
+  $('dPurpose').textContent=esc(LOAN.purpose);
+  $('confirmBtn').textContent=LOAN.confirmedAt?'✓ 已确认过 · 再看一遍':'✍️ 我确认以上借条内容';
+  // 还款操作区
+  const paid=LOAN.state==='paid', cancelled=LOAN.state==='cancelled';
+  $('doneBox').classList.toggle('hidden',!paid&&!cancelled);
+  if(paid)renderPaid();
+  else if(cancelled)renderCancelled();
+  // 逾期提醒
+  if(!paid&&!cancelled&&LOAN.state==='overdue'){
+    const overDays=Math.max(1,Math.round((new Date()-new Date(LOAN.endDate))/86400000));
+    $('overdueNote').innerHTML=`<div class="notice red" style="margin:0 0 14px">⚠️ 该笔借款已于 <b>${LOAN.endDate}</b> 到期，已逾期 <b>${overDays} 天</b>，请尽快还款。</div>`;
+  }else $('overdueNote').innerHTML='';
+  if(!paid&&!cancelled){
+    const confirmed=!!LOAN.confirmedAt;
+    $('confirmWarnBox').classList.toggle('hidden',confirmed);
+    $('actionBox').classList.toggle('hidden',!confirmed);
+    if(confirmed)renderAction();
+  }
+}
+/* 还款操作区二选一：wxpayEnabled 默认在线支付，可切换线下凭证 */
+function renderAction(){
+  const useWx=!!LOAN.wxpayEnabled&&!WX_SHOW_OFFLINE;
+  $('wxpayBox').classList.toggle('hidden',!useWx);
+  $('offlineBox').classList.toggle('hidden',useWx);
+  if(useWx){
+    const remain=Math.max(0,LOAN.dueTotalCents-LOAN.repaidCents);
+    $('wxRemain').textContent=fmt(remain);
+    $('wxpayInit').classList.remove('hidden');
+    $('wxpayQr').classList.add('hidden');
+    stopWxPoll();
+  }else{
+    renderPay();
+  }
+}
+function wxOffline(){WX_SHOW_OFFLINE=true;stopWxPoll();renderAction();}
+function wxCreate(){
+  const btn=$('wxCreateBtn');
+  if(!LOAN.wxpayEnabled)return toast('在线支付未启用，请改用线下转账');
+  btn.disabled=true;btn.textContent='生成中…';
+  fetch('/api/p/'+TOKEN+'/wxpay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok){btn.disabled=false;btn.innerHTML='⚡ 生成微信收款码';toast(j.msg||'生成失败');return}
+      btn.disabled=false;btn.innerHTML='⚡ 重新生成收款码';
+      $('wxQrImg').src=j.qr;
+      $('wxpayInit').classList.add('hidden');
+      $('wxpayQr').classList.remove('hidden');
+      WX_NO=j.outTradeNo;
+      startWxPoll();
+    }).catch(()=>{btn.disabled=false;btn.innerHTML='⚡ 生成微信收款码';toast('网络异常，请重试')});
+}
+function startWxPoll(){
+  stopWxPoll();
+  WX_POLL=setInterval(async()=>{
+    try{
+      const r=await fetch('/api/p/'+TOKEN+'/wxpay/status?no='+WX_NO);
+      const j=await r.json();
+      if(!j.ok){$('wxpayState').textContent='⏳ '+esc(j.msg||'等待支付…');return}
+      if(j.state==='paid'){
+        $('wxpayState').innerHTML='🎉 <b style="color:var(--ok)">支付成功，已自动到账！</b>';
+        stopWxPoll();
+        await new Promise(res=>setTimeout(res,1200));
+        location.reload();
+        return;
+      }
+      if(j.state==='CLOSED'){$('wxpayState').textContent='该支付码已失效，请重新生成';stopWxPoll();return}
+      if(j.state==='REFUND'){$('wxpayState').textContent='该订单已退款，如有疑问请联系出借人';stopWxPoll();return}
+      $('wxpayState').textContent='⏳ 等待支付…（扫码后约 3-10 秒自动确认）';
+    }catch(e){$('wxpayState').textContent='⏳ 等待支付…';}
+  },3000);
+}
+function stopWxPoll(){if(WX_POLL){clearInterval(WX_POLL);WX_POLL=null;}}
+function renderPaid(){
+  const repaid=LOAN.repayments.filter(r=>r.status==='confirmed');
+  const last=repaid[0];
+  $('doneBox').innerHTML=`<div class="card" style="text-align:center;border-color:var(--ok)">
+    <div class="bigcheck gc">✓</div>
+    <div style="font-size:18px;font-weight:800">借款已结清</div>
+    <div style="color:var(--sub);font-size:13.5px;margin-top:6px;line-height:1.7">
+      ${last?`出借人已于 <b>${new Date(last.confirmedAt).toLocaleString('zh-CN')}</b> 确认收到 <b>¥${fmt(last.amountCents)}</b> 还款。`:''}
+      <br>感谢守信，合作愉快。
+    </div>
+    ${renderHistory()}
+  </div>`;
+}
+function renderCancelled(){
+  $('doneBox').innerHTML=`<div class="card" style="text-align:center">
+    <div class="bigcheck hc">⏸</div>
+    <div style="font-size:17px;font-weight:800">该借条已作废</div>
+    <div style="color:var(--sub);font-size:13.5px;margin-top:6px">如有疑问请联系出借人。</div>
+  </div>`;
+}
+function renderHistory(){
+  if(!LOAN.repayments.length)return '';
+  return `<div style="text-align:left;margin-top:14px"><div class="sec-title" style="margin:0 0 6px">📜 还款记录</div>`+LOAN.repayments.map(r=>{
+    const m={wechat:'微信',alipay:'支付宝',bank:'银行卡',cash:'现金',wxpay:'微信在线'}[r.method]||'';
+    const st=r.status==='confirmed'?'已确认':r.status==='pending'?'待确认':'已驳回';
+    const cls=r.status==='confirmed'?'green':r.status==='pending'?'':'red';
+    return `<div class="kv" style="font-size:13px"><span class="k">${m} ¥${fmt(r.amountCents)} · ${new Date(r.submittedAt).toLocaleString('zh-CN')}</span><span class="v ${cls}">${st}</span></div>`;
+  }).join('')+'</div>';
+}
+/* 还款方式渲染 */
+function renderPay(){
+  const pay=LOAN.pay||{};
+  const tabs=[];
+  if(pay.wechatImg)tabs.push(['wechat','💚','微信']);
+  if(pay.alipayImg)tabs.push(['alipay','🔵','支付宝']);
+  if(pay.bank)tabs.push(['bank','🏦','银行卡']);
+  if(!tabs.length)tabs.push(['bank','🏦','银行卡']);
+  if(!tabs.some(t=>t[0]===payTab))payTab=tabs[0][0];
+  $('payTabs').innerHTML=tabs.map(t=>`<button class="paytab ${t[0]===payTab?'on':''}" data-t="${t[0]}" onclick="switchTab('${t[0]}')"><span class="pi">${t[1]}</span>${t[2]}</button>`).join('');
+  renderPanel();
+}
+function switchTab(t){payTab=t;renderPay()}
+function renderPanel(){
+  const pay=LOAN.pay||{};const p=$('payPanel');
+  if(payTab==='wechat'){
+    p.innerHTML=`<div class="qrcard"><img src="${pay.wechatImg?esc(pay.wechatImg):''}" onerror="this.closest('.qrcard').innerHTML='<div style=\'padding:20px\'><div style=\'font-size:30px\'>💚</div><div style=\'font-weight:700;margin:8px 0 4px\'>微信收款</div><div style=\'font-size:13px;color:var(--sub)\'>请向出借人索取收款二维码</div></div>'">
+      <div class="t1">微信扫码转账</div>
+      <div class="t2">打开微信「扫一扫」，扫描上方收款码，向出借人 <b>${esc(LOAN.lender.name||'')}</b> 转账应还金额。</div></div>`;
+  }else if(payTab==='alipay'){
+    p.innerHTML=`<div class="qrcard"><img src="${esc(pay.alipayImg)}">
+      <div class="t1">支付宝扫码转账</div>
+      <div class="t2">打开支付宝「扫一扫」，扫描上方收款码，向出借人 <b>${esc(LOAN.lender.name||'')}</b> 转账。</div></div>`;
+  }else{
+    p.innerHTML=`<div class="bankcard">${esc(pay.bank||'（暂无银行卡信息，请联系出借人获取转账账户）')}</div>`;
+  }
+}
+/* 借条全文 */
+function contractText(){
+  const l=LOAN;const R=rmbUpper(l.amountCents/100);
+  const L=l.lender;
+  const lines=[
+    `借　条`,
+    ``,
+    `出借人：${L.name||'（待填写）'}${L.idcard?'（身份证号：'+L.idcard+'）':''}`,
+    `借款人：${l.borrower.name}${l.borrower.idcard?'（身份证号：'+l.borrower.idcard+'）':''}${l.borrower.phone?'（电话：'+l.borrower.phone+'）':''}`,
+    ``,
+    `今借款人 ${l.borrower.name} 因${l.purpose||'资金周转'}需要，向出借人 ${L.name||'出借人'} 借到人民币 ${R}（¥${fmt(l.amountCents)}）。`,
+    `借款期限：自 ${l.startDate} 至 ${l.endDate}，共 ${l.days} 天。`,
+    l.ratePct>0?`双方约定年利率 ${l.ratePct}%（按实际天数单利计息），到期一次性还本付息。`:'双方约定无息借款，到期归还本金。',
+    `借款人应于 ${l.endDate} 前以转账方式向出借人足额归还本息。`,
+    l.note?`特别约定：${l.note}`:'',
+    ``,
+    `借款人确认本借条为真实意思表示，并同意以本平台记录（含确认时间）作为还款凭证依据之一。`,
+    ``,
+    `出借人（签名）：${L.name||'________'}　　${l.startDate}`,
+    `借款人（签名）：${l.borrower.name}　　${l.startDate}`,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+function showContract(){
+  $('contractText').textContent=contractText();
+  showMask('contractMask');
+}
+async function confirmContract(){
+  const r=await fetch('/api/p/'+TOKEN+'/confirm',{method:'POST'});
+  const j=await r.json();
+  hideMask('contractMask');
+  if(j.ok){toast('✅ 已确认借条内容');LOAN.confirmedAt=new Date().toISOString();render();}
+}
+/* 凭证上传 */
+function pickVoucher(){$('voucherInput').click()}
+$('voucherInput')&&($('voucherInput').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();rd.onload=ev=>{$('upInner').innerHTML=`<img src="${ev.target.result}">`;$('uploadBox').classList.add('on')};
+  rd.readAsDataURL(f);
+});
+/* 提交 */
+async function submitPay(){
+  const amount=parseFloat($('payAmount').value);
+  if(!amount||amount<=0)return toast('请填写实际转账金额');
+  const btn=$('submitBtn');btn.disabled=true;btn.textContent='提交中…';
+  const fd=new FormData();
+  fd.append('amount',amount);
+  fd.append('method',payTab==='bank'?'bank':payTab==='alipay'?'alipay':payTab==='cash'?'cash':'wechat');
+  fd.append('ref',$('payRef').value.trim());
+  fd.append('note',$('payNote').value.trim());
+  const vf=$('voucherInput').files[0];
+  if(vf)fd.append('voucher',vf);
+  try{
+    const r=await fetch('/api/p/'+TOKEN+'/pay',{method:'POST',body:fd});
+    const j=await r.json();
+    if(!j.ok){toast(j.msg||'提交失败');btn.disabled=false;btn.innerHTML='✅ 我已转账，提交凭证';return}
+    $('successTxt').innerHTML=`已收到您的还款凭证（¥${amount.toFixed(2)}）。<br>出借人核对到账后即确认结清。`;
+    showMask('successMask');
+  }catch(e){toast('网络异常');btn.disabled=false;btn.innerHTML='✅ 我已转账，提交凭证'}
+}
+function fmt(c){return (c/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function rmbUpper(n){
+  const CN=['零','壹','贰','叁','肆','伍','陆','柒','捌','玖'];
+  const U=['','拾','佰','仟'], B=['','万','亿'];
+  const total=Math.round(n*100);
+  const y=Math.floor(total/100), j=Math.floor(total%100/10), f=total%10;
+  if(y===0&&j===0&&f===0)return '零元整';
+  function seg4(v){
+    if(v===0)return '';
+    const d=[Math.floor(v/1000)%10,Math.floor(v/100)%10,Math.floor(v/10)%10,v%10];
+    let out='',pendingZero=false;
+    for(let i=0;i<4;i++){
+      if(d[i]===0){if(out)pendingZero=true;}
+      else{if(pendingZero)out+='零';out+=CN[d[i]]+(i<3?U[3-i]:'');pendingZero=false;}
+    }
+    return out;
+  }
+  let s='';
+  if(y>0){
+    const parts=[];let x=y,lv=0;
+    while(x>0){parts.push([x%10000,lv]);x=Math.floor(x/10000);lv++;}
+    for(let k=parts.length-1;k>=0;k--){
+      const [v,bi]=parts[k],t=seg4(v);
+      if(t){
+        if(k<parts.length-1&&v<1000&&s&&!s.endsWith('零'))s+='零';
+        s+=t+B[bi];
+      }
+    }
+    s+='元';
+  }else s='零元';
+  if(j||f){if(j)s+=CN[j]+'角';else if(f)s+='零';if(f)s+=CN[f]+'分';}
+  else s+='整';
+  return s;
+}
+load();
+</script>
+</body>
+</html>
