@@ -559,6 +559,8 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 app.get('/auth', (req, res) => res.sendFile(path.join(__dirname, 'public', 'auth.html')));
 app.get('/u', (req, res) => res.sendFile(path.join(__dirname, 'public', 'u.html')));
 app.get('/u/*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'u.html')));
+/* v1旧路径友好跳转：/admin /repay 是旧单管理员版入口，v2已升级为多用户 */
+app.get(['/admin', '/repay', '/admin/*', '/repay/*'], (req, res) => res.redirect('/auth'));
 app.get('/p/:token', (req, res) => {
   if (!db.loans.find(x => x.token === req.params.token)) return res.status(404).send('<h3 style="font-family:sans-serif;text-align:center;margin-top:20vh">未找到该借条，请核对链接是否正确</h3>');
   res.sendFile(path.join(__dirname, 'public', 'pub.html'));
