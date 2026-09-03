@@ -108,6 +108,20 @@ table .amt{font-weight:700}
 #imgModal img{width:100%;border-radius:8px}
 /* 凭证 */
 .vch{width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+/* 实名材料 */
+.idgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.idslot{border:1.5px dashed var(--line);border-radius:12px;padding:10px 8px 8px;text-align:center}
+.idslot .ic{font-size:26px;margin:4px 0}
+.idslot .nm{font-size:12px;font-weight:600;margin:4px 0 2px}
+.idslot .st{font-size:11px;margin-bottom:6px}
+.idslot img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;margin-bottom:4px}
+.idslot input[type=file]{display:none}
+.idslot .up{display:inline-block;font-size:12.5px;color:var(--primary-2);cursor:pointer;text-decoration:underline;padding:2px 6px}
+.idrow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.idrow .cell{text-align:center;cursor:pointer}
+.idrow .cell img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.idrow .cell.off{padding:16px 4px;background:var(--bg);border-radius:8px;border:1px dashed var(--line);cursor:default}
+.idrow .lbl{font-size:10.5px;color:var(--text-3);margin-top:3px}
 .qr-show{max-width:200px;border-radius:10px;border:6px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,.15);display:block;margin:10px auto}
 .loanfull{font-size:13.5px;line-height:2;background:#fbf9f4;border:1px solid #eadfc8;border-radius:10px;padding:16px 14px;margin:12px 0}
 .loanfull .t{font-size:15px;font-weight:800;text-align:center;letter-spacing:2px;display:block;margin-bottom:8px}
@@ -361,6 +375,21 @@ function renderLoan(){
   </div>
 
   <div class="card">
+    <h2 class="sec">🪪 双方实名材料</h2>
+    <p class="hint" style="margin:0 0 12px">点击照片放大核验。材料仅借贷双方可见（在「设置」中上传），平台不核验真伪。</p>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:12.5px;font-weight:700;margin-bottom:6px">💰 出借人 · ${esc(l.lender.name)}</div>
+        ${idPhotoRow(l,'lender')}
+      </div>
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:12.5px;font-weight:700;margin-bottom:6px">🙋 借款人 · ${esc(l.borrower.name)}</div>
+        ${idPhotoRow(l,'borrower')}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2 class="sec">📋 借款明细</h2>
     <div class="d-grid">
       <div class="d-item"><div class="k">借款本金</div><div class="v">${money(l.amountYuan)} 元</div></div>
@@ -423,6 +452,14 @@ function renderLoan(){
       </div>`).join('')}
   </div>`:''}
 
+  <div class="card">
+    <h2 class="sec">✍️ 手写借条照片</h2>
+    <p class="hint" style="margin:0 0 10px">纸质手写借条拍照存档，借贷双方均可上传、互相可见，作为借条原件凭证（最多 9 张）。</p>
+    <div id="evdBox" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+    <input type="file" id="evdFile" accept="image/*" multiple style="display:none">
+    <button class="btn btn-ghost btn-block" id="btnEvd" style="margin-top:12px">📷 上传手写借条照片</button>
+  </div>
+
   <div class="card" style="background:#fbf9f4;border:1px solid #eadfc8">
     <h2 class="sec" style="font-size:14px">⚖️ 借条全文</h2>
     ${loanFullText(l)}
@@ -446,6 +483,28 @@ function renderLoan(){
   const bi=$('btnIcs');if(bi)bi.onclick=()=>{location.href='/api/loans/'+l.id+'/calendar';toast('📅 已下载日历文件，请打开导入（手机日历会自动提醒）')};
   const bimg=$('btnImg');if(bimg)bimg.onclick=()=>genLoanImage();
   const brp=$('btnRepay');if(brp)brp.onclick=()=>showRepaySheet();
+  /* 手写借条照片 */
+  const evd=(l.evidence||[]);
+  $('evdBox').innerHTML=evd.length?evd.map(e=>`
+    <div style="text-align:center">
+      <img class="vch" style="width:78px;height:78px" src="/api/loans/${l.id}/evidence/${e.id}" onclick="$('imgFull').src=this.src;$('imgModal').style.display='flex'">
+      <div class="lbl">${e.uploadedBy==='lender'?'出借人':'借款人'}上传</div>
+      ${e.uploadedBy===role?`<span style="font-size:10.5px;color:var(--danger);cursor:pointer" onclick="delEvd('${l.id}','${e.id}')">删除</span>`:''}
+    </div>`).join(''):'<div style="font-size:12.5px;color:var(--text-3)">暂无照片，点击下方按钮上传</div>';
+  $('btnEvd').onclick=()=>$('evdFile').click();
+  $('evdFile').onchange=async ev=>{
+    const files=[...ev.target.files];if(!files.length)return;
+    const btn=$('btnEvd');btn.disabled=true;btn.textContent='上传中…';
+    try{
+      for(const f of files){
+        const fd=new FormData();fd.append('image',f);
+        const r=await fetch('/api/loans/'+l.id+'/evidence',{method:'POST',body:fd});
+        const j=await r.json();
+        if(!j.ok){toast(j.msg);break}
+      }
+      toast('✅ 上传完成');pageLoan(l.id);
+    }finally{btn.disabled=false;btn.textContent='📷 上传手写借条照片'}
+  };
 }
 function loanFullText(l){
   return `<div class="loanfull">
@@ -608,6 +667,11 @@ async function pageSettings(){
     <button class="btn btn-p btn-block" style="margin-top:16px" id="btnSave">保存实名资料</button>
   </div>
   <div class="card">
+    <h2 class="sec">🪪 实名认证材料</h2>
+    <p class="hint" style="margin:0 0 12px">上传手持身份证照、身份证人像面/国徽面照片，增强借条证明力。<b style="color:var(--warn)">仅你本人与你的借贷对手方可见</b>，平台不公开展示、不核验真伪。</p>
+    <div class="idgrid" id="idGrid"></div>
+  </div>
+  <div class="card">
     <h2 class="sec">💰 我的收款方式</h2>
     <p class="hint" style="margin:0 0 6px">借款人向你还款时展示。平台不经手资金，转账直接到你账户。</p>
     <label>微信收款码</label>
@@ -625,6 +689,17 @@ async function pageSettings(){
     <p style="font-size:12.5px;color:var(--text-2);line-height:1.8">本平台仅为借条生成与记账辅助工具：不参与放款与收款、不审核借条真实性、不核验身份信息真伪。借贷利率由双方自行约定，超过司法保护上限（LPR4倍，约${ME.lpr4}%）部分不受法律保护。使用本平台产生的纠纷请依法解决。</p>
   </div>
   <button class="btn btn-ghost btn-block" id="btnLogout2" style="color:var(--danger);border-color:#f3b9b4">退出登录</button>`;
+  /* 实名材料槽位 */
+  const idp=u.idPhotos||{};
+  const slots=[['handheld','✊','手持身份证照'],['front','🪪','身份证人像面'],['back','🛡️','身份证国徽面']];
+  $('idGrid').innerHTML=slots.map(([k,ic,nm])=>`
+    <div class="idslot">
+      ${idp[k]?`<img src="/api/me/idphotos/${k}">`:`<div class="ic">${ic}</div>`}
+      <div class="nm">${nm}</div>
+      <div class="st" style="color:${idp[k]?'var(--success)':'var(--text-3)'}">${idp[k]?'✅ 已上传':'⬜ 未上传'}</div>
+      <span class="up" onclick="$('idf_${k}').click()">${idp[k]?'更换照片':'上传照片'}</span>
+      <input type="file" id="idf_${k}" accept="image/*" onchange="upIdPhoto('${k}')">
+    </div>`).join('');
   $('btnSave').onclick=async()=>{
     const name=$('sname').value.trim(),idcard=$('sidcard').value.trim();
     const j=await api('/api/me/profile',{method:'PUT',body:JSON.stringify({name,idcard})});
@@ -657,6 +732,36 @@ async function pageSettings(){
 function doLogout(){
   if(!confirm('确定退出登录？'))return;
   fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/');
+}
+/* 上传实名材料（手持/人像面/国徽面） */
+async function upIdPhoto(type){
+  const f=$('idf_'+type).files[0];if(!f)return;
+  const fd=new FormData();fd.append('image',f);fd.append('type',type);
+  const r=await fetch('/api/me/idphotos',{method:'POST',body:fd});
+  const j=await r.json();
+  toast(j.ok?'✅ '+({handheld:'手持身份证照',front:'身份证人像面',back:'身份证国徽面'}[type]||'材料')+'已上传':j.msg);
+  if(j.ok){await loadMe();pageSettings()}
+}
+/* 借条详情-实名材料行 */
+function idPhotoRow(l,who){
+  const p=(l.idPhotos||{})[who]||{};
+  const items=[['handheld','手持照'],['front','人像面'],['back','国徽面']];
+  return '<div class="idrow">'+items.map(([k,nm])=>{
+    if(p[k])return `<div class="cell" onclick="viewIdPhoto('${l.id}','${who}','${k}')"><img src="/api/loans/${l.id}/idphoto/${who}/${k}"><div class="lbl">✅ ${nm}</div></div>`;
+    return `<div class="cell off"><div class="lbl">⬜ ${nm}<br>未上传</div></div>`;
+  }).join('')+'</div>';
+}
+function viewIdPhoto(lid,who,type){
+  $('imgFull').src=`/api/loans/${lid}/idphoto/${who}/${type}`;
+  $('imgModal').style.display='flex';
+}
+/* 删除手写借条照片（仅上传者） */
+async function delEvd(lid,eid){
+  if(!confirm('确定删除这张手写借条照片？'))return;
+  const r=await fetch(`/api/loans/${lid}/evidence/${eid}`,{method:'DELETE'});
+  const j=await r.json();
+  toast(j.ok?'已删除':j.msg);
+  if(j.ok)pageLoan(lid);
 }
 $('btnLogout').onclick=doLogout;
 

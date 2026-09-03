@@ -18,10 +18,12 @@ const QRCode = require('qrcode');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const ID_DIR = path.join(DATA_DIR, 'uploads_id'); // 实名材料/手写借条照片：私有目录，绝不静态公开
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const PORT = process.env.PORT || 8931;
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(ID_DIR)) fs.mkdirSync(ID_DIR, { recursive: true });
 
 /* ---------------- 简单 JSON 存储（原子写） ---------------- */
 function defaultDb() {
@@ -136,6 +138,10 @@ function nextNo() {
 }
 
 /** 借条对外视图（脱敏：身份证打码；role: lender|borrower|pub） */
+function photoStat(u) {
+  const p = (u && u.idPhotos) || {};
+  return { handheld: !!p.handheld, front: !!p.front, back: !!p.back };
+}
 function loanView(loan, role, viewer) {
   const interest = loanInterest(loan);
   const repaid = confirmedTotal(loan);
@@ -172,6 +178,14 @@ function loanView(loan, role, viewer) {
       confirmNote: r.confirmNote || ''
     })),
     payQr: viewer === 'lender-full' ? undefined : (lender.payQr || {}),
+    /* 实名材料与手写借条照片：仅借贷双方可见（pub 公开视图不带） */
+    idPhotos: role === 'pub' ? undefined : (() => {
+      const borrowerU = db.users.find(u => u.phone === loan.borrower.phone);
+      return { lender: photoStat(lender), borrower: photoStat(borrowerU) };
+    })(),
+    evidence: role === 'pub' ? undefined : (loan.evidence || []).map(e => ({
+      id: e.id, name: e.name, uploadedBy: e.uploadedBy, uploadedAt: e.uploadedAt
+    })),
     createdAt: loan.createdAt
   };
 }
@@ -211,6 +225,22 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, f, cb) => {
     const ok = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic'].includes(path.extname(f.originalname).toLowerCase());
+    cb(ok ? null : new Error('仅支持图片'), ok);
+  }
+});
+/* 实名材料/手写借条照片：存私有目录 ID_DIR，仅通过带权限校验的接口访问 */
+const storageId = multer.diskStorage({
+  destination: (req, f, cb) => cb(null, ID_DIR),
+  filename: (req, f, cb) => {
+    const ext = (path.extname(f.originalname) || '.jpg').toLowerCase().replace(/[^.a-z0-9]/g, '');
+    cb(null, `id-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`);
+  }
+});
+const uploadId = multer({
+  storage: storageId,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, f, cb) => {
+    const ok = ['.jpg', '.jpeg', '.png', '.webp', '.heic'].includes(path.extname(f.originalname).toLowerCase());
     cb(ok ? null : new Error('仅支持图片'), ok);
   }
 });
@@ -276,8 +306,29 @@ app.get('/api/me', (req, res) => {
   if (!u) return res.json({ ok: true, loggedIn: false, lpr4: LPR4 });
   res.json({
     ok: true, loggedIn: true, lpr4: LPR4,
-    user: { id: u.id, phone: u.phone, name: u.name, idcard: u.idcard, payQr: u.payQr, createdAt: u.createdAt }
+    user: { id: u.id, phone: u.phone, name: u.name, idcard: u.idcard, payQr: u.payQr, idPhotos: photoStat(u), createdAt: u.createdAt }
   });
+});
+/* 实名认证材料（手持身份证照 / 身份证人像面 / 国徽面）：私有存储，仅本人与借贷对手方可见 */
+app.post('/api/me/idphotos', needLogin, uploadId.single('image'), (req, res) => {
+  const type = ['handheld', 'front', 'back'].includes(req.body.type) ? req.body.type : null;
+  if (!type) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch (e) {} }
+    return res.status(400).json({ ok: false, msg: '无效的材料类型' });
+  }
+  if (!req.file) return res.status(400).json({ ok: false, msg: '未收到图片' });
+  req.user.idPhotos = req.user.idPhotos || {};
+  const old = req.user.idPhotos[type];
+  if (old && fs.existsSync(path.join(ID_DIR, path.basename(old)))) { try { fs.unlinkSync(path.join(ID_DIR, path.basename(old))); } catch (e) {} }
+  req.user.idPhotos[type] = req.file.filename;
+  saveDb();
+  res.json({ ok: true, msg: '上传成功' });
+});
+app.get('/api/me/idphotos/:type', needLogin, (req, res) => {
+  const t = ['handheld', 'front', 'back'].includes(req.params.type) ? req.params.type : null;
+  const f = t && req.user.idPhotos && req.user.idPhotos[t];
+  if (!f) return res.status(404).json({ ok: false, msg: '尚未上传该材料' });
+  res.sendFile(path.join(ID_DIR, path.basename(f)));
 });
 /* 更新实名资料 */
 app.put('/api/me/profile', needLogin, (req, res) => {
@@ -544,6 +595,58 @@ app.get('/api/loans/:id/qrcode', needLogin, async (req, res) => {
     const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 640, color: { dark: '#16324f', light: '#ffffff' } });
     res.json({ ok: true, url, dataUrl });
   } catch (e) { res.status(500).json({ ok: false, msg: '二维码生成失败' }); }
+});
+
+/* 查看借条对方实名材料（仅借贷双方，通过本借条关系授权） */
+app.get('/api/loans/:id/idphoto/:who/:type', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l } = f;
+  const type = ['handheld', 'front', 'back'].includes(req.params.type) ? req.params.type : null;
+  if (!type) return res.status(400).json({ ok: false, msg: '无效的材料类型' });
+  const targetUser = req.params.who === 'lender'
+    ? db.users.find(u => u.id === l.lenderId)
+    : req.params.who === 'borrower' ? db.users.find(u => u.phone === l.borrower.phone) : null;
+  if (!targetUser) return res.status(404).json({ ok: false, msg: '对方尚未注册账号' });
+  const fname = targetUser.idPhotos && targetUser.idPhotos[type];
+  if (!fname) return res.status(404).json({ ok: false, msg: '对方尚未上传该材料' });
+  res.sendFile(path.join(ID_DIR, path.basename(fname)));
+});
+
+/* 手写借条照片（挂在借条上，借贷双方均可上传，双方可见，仅上传者可删除） */
+app.post('/api/loans/:id/evidence', needLogin, uploadId.single('image'), (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (!req.file) return res.status(400).json({ ok: false, msg: '未收到图片' });
+  l.evidence = l.evidence || [];
+  if (l.evidence.length >= 9) {
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    return res.status(400).json({ ok: false, msg: '每张借条最多上传 9 张照片' });
+  }
+  l.evidence.push({
+    id: crypto.randomBytes(8).toString('hex'),
+    filename: req.file.filename,
+    name: req.file.originalname,
+    uploadedBy: role, uploadedByUserId: req.user.id,
+    uploadedAt: new Date().toISOString()
+  });
+  saveDb();
+  res.json({ ok: true, msg: '照片已上传' });
+});
+app.get('/api/loans/:id/evidence/:eid', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const e = (f.l.evidence || []).find(x => x.id === req.params.eid);
+  if (!e) return res.status(404).json({ ok: false, msg: '照片不存在' });
+  res.sendFile(path.join(ID_DIR, path.basename(e.filename)));
+});
+app.delete('/api/loans/:id/evidence/:eid', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const e = (f.l.evidence || []).find(x => x.id === req.params.eid);
+  if (!e) return res.status(404).json({ ok: false, msg: '照片不存在' });
+  if (e.uploadedByUserId !== req.user.id) return res.status(403).json({ ok: false, msg: '只能删除自己上传的照片' });
+  f.l.evidence = f.l.evidence.filter(x => x.id !== e.id);
+  try { fs.unlinkSync(path.join(ID_DIR, path.basename(e.filename))); } catch (err) {}
+  saveDb();
+  res.json({ ok: true, msg: '已删除' });
 });
 
 /* ================= 公开借条页（免登录查看，确认需登录） ================= */
