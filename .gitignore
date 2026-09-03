@@ -17,3 +17,6 @@ Thumbs.db
 screenshots/
 test/
 runner_*.js
+data/*.json
+test/
+runner_check.js
