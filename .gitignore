@@ -20,3 +20,9 @@ runner_*.js
 data/*.json
 test/
 runner_check.js
+
+# 私有上传目录（身份证照片/手写借条照片，含敏感数据）
+data/uploads_id/
+
+# 本地助手记忆与配置
+.workbuddy/
