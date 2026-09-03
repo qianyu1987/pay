@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>登录 / 注册 · 好友借条</title>
+<style>
+:root{
+  --primary:#16406e; --primary-2:#1a5fb4; --primary-light:#eaf2fb;
+  --success:#188038; --success-bg:#e6f4ea;
+  --danger:#d93025; --danger-bg:#fce8e6;
+  --warn:#b06000; --warn-bg:#fef7e0;
+  --text:#202124; --text-2:#5f6368; --text-3:#9aa0a6;
+  --bg:#f5f7fa; --card:#ffffff; --line:#e8eaed;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+.wrap{max-width:440px;margin:0 auto;padding:20px 16px 40px}
+.back{display:inline-flex;align-items:center;gap:4px;color:var(--text-2);text-decoration:none;font-size:14px;margin-bottom:18px;padding:8px 0}
+.card{background:var(--card);border-radius:var(--radius);padding:26px 22px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.tabs{display:flex;background:var(--bg);border-radius:10px;padding:4px;margin-bottom:22px}
+.tab{flex:1;text-align:center;padding:9px;border-radius:8px;font-size:15px;font-weight:600;color:var(--text-2);cursor:pointer;transition:.15s}
+.tab.on{background:var(--primary-2);color:#fff;box-shadow:0 2px 6px rgba(26,95,180,.35)}
+.fi{width:56px;height:56px;border-radius:16px;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 12px}
+h1{font-size:20px;text-align:center;margin-bottom:4px}
+.sub{text-align:center;color:var(--text-2);font-size:13px;margin-bottom:20px}
+label{display:block;font-size:13.5px;font-weight:600;margin:14px 0 6px}
+label .must{color:var(--danger)}
+input[type=text],input[type=tel],input[type=password]{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;font-size:15px;outline:none;transition:.15s;background:#fff}
+input:focus{border-color:var(--primary-2);box-shadow:0 0 0 3px rgba(26,95,180,.12)}
+.hint{font-size:12px;color:var(--text-3);margin-top:4px}
+.btn{display:block;width:100%;padding:13px;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;margin-top:22px;transition:.15s}
+.btn-p{background:var(--primary-2);color:#fff}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.55}
+.err{background:var(--danger-bg);color:var(--danger);border-radius:10px;padding:10px 14px;font-size:13.5px;margin-bottom:14px;display:none}
+.agree{display:flex;gap:8px;align-items:flex-start;margin-top:18px;font-size:12.5px;color:var(--text-2);cursor:pointer}
+.agree input{margin-top:3px;flex:none;width:16px;height:16px;accent-color:var(--primary-2)}
+.agree a{color:var(--primary-2)}
+.risk{background:var(--danger-bg);border:1.5px solid #f3b9b4;border-radius:10px;padding:12px;margin-top:18px;font-size:12.5px;color:#a50e0e}
+.risk b{color:var(--danger)}
+.risk h4{font-size:13.5px;color:var(--danger);margin-bottom:4px}
+footer{text-align:center;padding:10px 0}
+footer p{font-size:11.5px;color:var(--text-3);line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">‹ 返回首页</a>
+  <div class="card">
+    <div class="tabs">
+      <div class="tab" id="tabLogin">登 录</div>
+      <div class="tab" id="tabReg">注 册</div>
+    </div>
+
+    <!-- 登录 -->
+    <form id="loginForm" style="display:none">
+      <div class="fi">🔐</div>
+      <h1>欢迎回来</h1>
+      <p class="sub">登录后管理你的借条</p>
+      <div class="err" id="lerr"></div>
+      <label>手机号</label>
+      <input type="tel" id="lphone" maxlength="11" placeholder="注册时使用的手机号" autocomplete="tel">
+      <label>密码</label>
+      <input type="password" id="lpass" placeholder="至少 6 位" autocomplete="current-password">
+      <button class="btn btn-p" type="submit">登 录</button>
+    </form>
+
+    <!-- 注册 -->
+    <form id="regForm" style="display:none">
+      <div class="fi">📝</div>
+      <h1>注册账号</h1>
+      <p class="sub">实名信息将写入你创建或确认的借条</p>
+      <div class="err" id="rerr"></div>
+      <label>手机号 <span class="must">*</span></label>
+      <input type="tel" id="rphone" maxlength="11" placeholder="用于登录与接收借条">
+      <div class="hint">📱 出借人创建借条时填写此手机号，借条会自动出现在你的「我借入的」列表</div>
+      <label>设置密码 <span class="must">*</span></label>
+      <input type="password" id="rpass" placeholder="至少 6 位" autocomplete="new-password">
+      <label>真实姓名 <span class="must">*</span></label>
+      <input type="text" id="rname" placeholder="与身份证一致，写入借条正文">
+      <label>身份证号 <span class="must">*</span></label>
+      <input type="text" id="ridcard" maxlength="18" placeholder="18 位，仅用于借条正文展示">
+      <div class="hint">🔒 身份证号仅用于借条正文身份描述，平台不做第三方核验</div>
+      <label class="agree"><input type="checkbox" id="ragree">
+        <span>我已阅读并同意 <a href="#" onclick="alert('用户协议要点：\\n1. 本平台仅为借条生成与记账辅助工具；\\n2. 平台不参与任何资金往来，不代收代付；\\n3. 平台不审核借条真实性与借贷事实；\\n4. 利率由借贷双方自行约定，超过司法保护上限（LPR4倍）部分不受法律保护；\\n5. 借贷纠纷由双方自行依法解决。');return false">《用户协议》</a>与 <a href="#" onclick="alert('隐私政策要点：\\n1. 仅收集注册与借条必需信息（手机号、姓名、身份证号）；\\n2. 身份证号仅用于借条正文身份描述；\\n3. 数据存储于本站服务器，仅借贷双方可见；\\n4. 不向任何第三方出售或共享个人信息。');return false">《隐私政策》</a>，知悉平台不参与借贷资金往来</span>
+      </label>
+      <div class="risk">
+        <h4>⚠️ 风险告知</h4>
+        本平台仅为<b>辅助工具</b>：不参与放款与收款、不审核借条真假。借贷利率请勿超过司法保护上限（LPR 4 倍，当前约 12.4%），超出部分利息不受法律保护。
+      </div>
+      <button class="btn btn-p" type="submit">注 册</button>
+    </form>
+  </div>
+</div>
+<footer><p>好友借条 · 一对一借条工具 · 平台不经手资金</p></footer>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  let mode=new URLSearchParams(location.search).get('mode')||'login';
+  function show(m){
+    mode=m;
+    $('tabLogin').classList.toggle('on',m==='login');
+    $('tabReg').classList.toggle('on',m==='reg');
+    $('loginForm').style.display=m==='login'?'':'none';
+    $('regForm').style.display=m==='reg'?'':'none';
+    history.replaceState(null,'','?mode='+m);
+  }
+  $('tabLogin').onclick=()=>show('login');
+  $('tabReg').onclick=()=>show('reg');
+  show(mode);
+  function e(el,msg){el.textContent=msg;el.style.display=msg?'block':'none'}
+  $('loginForm').onsubmit=async ev=>{
+    ev.preventDefault();
+    e($('lerr'),'');
+    const phone=$('lphone').value.trim(),password=$('lpass').value;
+    if(!phone||!password)return e($('lerr'),'请填写手机号和密码');
+    const btn=ev.target.querySelector('button');btn.disabled=true;btn.textContent='登录中…';
+    try{
+      const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,password})});
+      const j=await r.json();
+      if(!j.ok)return e($('lerr'),j.msg||'登录失败');
+      location.href='/u';
+    }catch(_){e($('lerr'),'网络异常，请重试')}
+    finally{btn.disabled=false;btn.textContent='登 录'}
+  };
+  $('regForm').onsubmit=async ev=>{
+    ev.preventDefault();
+    e($('rerr'),'');
+    const phone=$('rphone').value.trim(),password=$('rpass').value,name=$('rname').value.trim(),idcard=$('ridcard').value.trim();
+    if(!/^1[3-9]\d{9}$/.test(phone))return e($('rerr'),'请填写正确的手机号');
+    if(password.length<6)return e($('rerr'),'密码至少 6 位');
+    if(!name)return e($('rerr'),'请填写真实姓名');
+    if(!/^\d{17}[\dXx]$/.test(idcard))return e($('rerr'),'请填写正确的 18 位身份证号');
+    if(!$('ragree').checked)return e($('rerr'),'请先阅读并勾选同意《用户协议》与《隐私政策》');
+    const btn=ev.target.querySelector('button');btn.disabled=true;btn.textContent='注册中…';
+    try{
+      const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,password,name,idcard,agree:true})});
+      const j=await r.json();
+      if(!j.ok)return e($('rerr'),j.msg||'注册失败');
+      location.href='/u';
+    }catch(_){e($('rerr'),'网络异常，请重试')}
+    finally{btn.disabled=false;btn.textContent='注 册'}
+  };
+})();
+</script>
+</body>
+</html>

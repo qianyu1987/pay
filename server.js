@@ -1,11 +1,13 @@
 'use strict';
 /**
- * 朋友借条 · 好友间私人借贷工具
- * 合规原则：
- *  1. 网站不做资金托管/代收，仅生成借条、账单，借款人线下转账后提交凭证，出借人确认到账；
- *  2. 利率司法保护上限 = 合同成立时一年期LPR的4倍（当前约12%/年），超出部分不受法律保护；
- *  3. 仅限自然人朋友间借贷，不面向不特定公众吸储放贷。
- * 存储：JSON 文件（data/db.json），零原生依赖，便于跨服务器部署迁移。
+ * 好友借条 v2 · 多用户一对一借条工具平台
+ * 定位与合规（平台免责边界）：
+ *  1. 平台仅为借贷双方提供借条生成、还款计划、记账提醒等辅助工具；
+ *  2. 平台不参与任何资金往来（无代收/代付/托管，收款由双方自行完成）；
+ *  3. 平台不审核借条真实性，不核实借贷事实，风险由借贷双方自行承担；
+ *  4. 利率由用户自由约定，平台仅作红字风险提示（司法保护上限=LPR4倍，超出部分不受法律保护）；
+ *  5. 仅限自然人之间一对一借贷记账，不向不特定公众提供撮合服务。
+ * 存储：JSON 文件（data/db.json，原子写），零原生依赖。
  */
 const express = require('express');
 const multer = require('multer');
@@ -13,7 +15,6 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const QRCode = require('qrcode');
-const wxpay = require('./lib/wxpay');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
@@ -25,10 +26,10 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 /* ---------------- 简单 JSON 存储（原子写） ---------------- */
 function defaultDb() {
   return {
-    config: { lender: { name: '', idcard: '', phone: '' }, pay: {}, secret: crypto.randomBytes(32).toString('hex') },
+    secret: crypto.randomBytes(32).toString('hex'),
     seq: 1000,
-    loans: [],
-    payOrders: [] // 微信 Native 在线支付订单：{ outTradeNo, loanToken, amountCents, status, createdAt, paidAt, txnId }
+    users: [],   // {id, phone, name, idcard, passwordHash, salt, payQr:{wechatImg,alipayImg,bank}, createdAt}
+    loans: []    // {id, no, token, lenderId, borrower:{name,phone,idcard}, amountCents, ratePct, startDate, endDate, repayMethod, purpose, note, status, confirmAt, repayments, createdAt}
   };
 }
 function loadDb() {
@@ -36,7 +37,8 @@ function loadDb() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { return defaultDb(); }
 }
 let db = loadDb();
-if (!Array.isArray(db.payOrders)) db.payOrders = [];
+if (!Array.isArray(db.users)) db.users = [];
+if (!Array.isArray(db.loans)) db.loans = [];
 function saveDb() {
   const tmp = DB_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
@@ -46,63 +48,122 @@ function saveDb() {
 /* ---------------- 工具 ---------------- */
 function yuanToCents(y) { return Math.round(Number(y || 0) * 100); }
 function centsToYuan(c) { return (c / 100).toFixed(2); }
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function fmtD(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function today() { return fmtD(new Date()); }
+function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
+function addMonths(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setMonth(d.getMonth() + n);
+  return fmtD(d);
 }
-function daysBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
-const LPR4 = 12; // 一年期LPR约3.0% ×4 = 12% 司法保护上限（可随最新LPR调整提示）
+const LPR4 = 12.4; // 一年期LPR(3.1%)×4 司法保护上限提示值（动态概念，此处为提示基准）
 
 /** 单利计息：本金(分) × 年利率% × 天数 / 365 */
 function calcInterest(amountCents, ratePct, days) {
   if (!ratePct || days <= 0) return 0;
   return Math.round(amountCents * ratePct * days / 100 / 365);
 }
-/** 借期利息 */
+
+/* ---------------- 还款计划生成 ---------------- */
+/**
+ * repayMethod:
+ *  lump              到期一次性还本付息
+ *  monthly_interest  按月付息（整月），到期还本
+ *  equal_installment 按月等额本息
+ */
+function buildSchedule(loan) {
+  const { amountCents, ratePct, startDate, endDate, repayMethod } = loan;
+  const totalDays = Math.max(0, daysBetween(startDate, endDate));
+  const list = [];
+  if (repayMethod === 'monthly_interest') {
+    const monthInterest = Math.round(amountCents * ratePct / 100 / 12);
+    let idx = 1, cur = startDate, guard = 0;
+    while (guard++ < 600) {
+      const next = addMonths(cur, 1);
+      if (next >= endDate) break;
+      list.push({ idx, dueDate: next, principalCents: 0, interestCents: monthInterest, totalCents: monthInterest, kind: 'interest', paidCents: 0 });
+      cur = next; idx++;
+    }
+    // 末期：还本 + 最后一期利息（按整月近似）
+    list.push({ idx, dueDate: endDate, principalCents: amountCents, interestCents: monthInterest, totalCents: amountCents + monthInterest, kind: 'principal+interest', paidCents: 0 });
+    return list;
+  }
+  if (repayMethod === 'equal_installment') {
+    let months = 0, cur = startDate, guard = 0;
+    while (guard++ < 600) { const next = addMonths(cur, 1); if (next >= endDate) break; cur = next; months++; }
+    months = Math.max(1, months + 1); // 含末期
+    const r = ratePct / 100 / 12;
+    let per;
+    if (r <= 0) per = Math.round(amountCents / months);
+    else per = Math.round(amountCents * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1));
+    let remainP = amountCents;
+    for (let i = 1; i <= months; i++) {
+      const isLast = i === months;
+      const interest = Math.round(remainP * r);
+      let principal = per - interest;
+      if (isLast) principal = remainP; // 尾差归末期
+      const due = isLast ? endDate : addMonths(startDate, i);
+      list.push({ idx: i, dueDate: due, principalCents: principal, interestCents: interest, totalCents: principal + interest, kind: 'installment', paidCents: 0 });
+      remainP -= principal;
+    }
+    return list;
+  }
+  // 默认：到期一次性还本付息
+  const interest = calcInterest(amountCents, ratePct, totalDays);
+  return [{ idx: 1, dueDate: endDate, principalCents: amountCents, interestCents: interest, totalCents: amountCents + interest, kind: 'lump', paidCents: 0 }];
+}
+
+/** 借期总利息（与计划一致：一次性按天数；分期按计划合计） */
 function loanInterest(loan) {
-  const days = Math.max(0, daysBetween(loan.startDate, loan.endDate));
-  return calcInterest(loan.amountCents, loan.ratePct, days);
+  if (loan.repayMethod === 'monthly_interest') {
+    let months = 0, cur = loan.startDate, guard = 0;
+    while (guard++ < 600) { const next = addMonths(cur, 1); if (next >= loan.endDate) break; cur = next; months++; }
+    return Math.round(loan.amountCents * loan.ratePct / 100 / 12) * (months + 1);
+  }
+  if (loan.repayMethod === 'equal_installment') {
+    return buildSchedule(loan).reduce((s, x) => s + x.interestCents, 0);
+  }
+  return calcInterest(loan.amountCents, loan.ratePct, Math.max(0, daysBetween(loan.startDate, loan.endDate)));
 }
-/** 逾期至今额外利息（按原利率继续计，供提示用，实际以出借人确认为准） */
-function overdueExtra(loan) {
-  if (loan.status === 'paid' || loan.status === 'cancelled') return 0;
-  const due = daysBetween(loan.endDate, today());
-  if (due <= 0) return 0;
-  return calcInterest(loan.amountCents, loan.ratePct || Math.max(0, 0), due);
-}
-/** 还款记录中被确认的金额合计(分) */
 function confirmedTotal(loan) {
   return (loan.repayments || []).filter(r => r.status === 'confirmed').reduce((s, r) => s + (r.amountCents || 0), 0);
 }
 function nextNo() {
   const d = new Date();
-  const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   db.seq += 1;
-  return `JD-${ym}-${db.seq}`;
+  return `JT-${ymd}-${db.seq}`;
 }
-function publicLoan(loan, withPayQr) {
+
+/** 借条对外视图（脱敏：身份证打码；role: lender|borrower|pub） */
+function loanView(loan, role, viewer) {
   const interest = loanInterest(loan);
-  const dueTotal = loan.amountCents + interest;
   const repaid = confirmedTotal(loan);
-  const now = today();
+  const schedule = buildSchedule(loan);
+  const lender = db.users.find(u => u.id === loan.lenderId) || { name: '(已注销)', phone: '', idcard: '' };
+  const mask = s => (s || '').length > 6 ? String(s).slice(0, 3) + '***********' + String(s).slice(-4) : '***';
   const state = loan.status === 'paid' ? 'paid'
     : loan.status === 'cancelled' ? 'cancelled'
-    : now > loan.endDate ? 'overdue' : 'active';
+    : loan.status === 'rejected' ? 'rejected'
+    : loan.status === 'pending' ? 'pending'
+    : today() > loan.endDate ? 'overdue' : 'active';
   return {
     id: loan.id, no: loan.no, token: loan.token, status: loan.status, state,
-    borrower: loan.borrower,
-    lender: db.config.lender,
-    amountYuan: centsToYuan(loan.amountCents),
-    amountCents: loan.amountCents,
-    ratePct: loan.ratePct,
+    repayMethod: loan.repayMethod,
+    lender: { name: lender.name, phone: lender.phone, idcard: role === 'pub' ? mask(lender.idcard) : lender.idcard },
+    borrower: { name: loan.borrower.name, phone: loan.borrower.phone, idcard: role === 'pub' ? mask(loan.borrower.idcard) : loan.borrower.idcard },
+    amountYuan: centsToYuan(loan.amountCents), amountCents: loan.amountCents,
+    ratePct: loan.ratePct, rateOverLpr4: loan.ratePct > LPR4,
     startDate: loan.startDate, endDate: loan.endDate,
-    purpose: loan.purpose || '', note: loan.note || '',
-    interestCents: interest, dueTotalCents: dueTotal, dueTotalYuan: centsToYuan(dueTotal),
-    overdueExtraCents: overdueExtra(loan),
     days: Math.max(0, daysBetween(loan.startDate, loan.endDate)),
-    pay: withPayQr ? db.config.pay : undefined,
-    wxpayEnabled: withPayQr ? wxEnabled() : false,
-    confirmedAt: loan.confirmedAt || null,
+    purpose: loan.purpose || '', note: loan.note || '',
+    interestCents: interest, interestYuan: centsToYuan(interest),
+    dueTotalCents: loan.amountCents + interest, dueTotalYuan: centsToYuan(loan.amountCents + interest),
+    repaidCents: repaid, repaidYuan: centsToYuan(repaid),
+    remainCents: Math.max(0, loan.amountCents + interest - repaid), remainYuan: centsToYuan(Math.max(0, loan.amountCents + interest - repaid)),
+    schedule: schedule.map(s => ({ ...s, dueYuan: centsToYuan(s.totalCents) })),
+    confirmAt: loan.confirmAt || null,
+    confirmName: loan.confirmName || '',
     repayments: (loan.repayments || []).slice().reverse().map(r => ({
       id: r.id, amountYuan: centsToYuan(r.amountCents), amountCents: r.amountCents,
       method: r.method, ref: r.ref || '', note: r.note || '',
@@ -110,31 +171,34 @@ function publicLoan(loan, withPayQr) {
       submittedAt: r.submittedAt, confirmedAt: r.confirmedAt || null, status: r.status,
       confirmNote: r.confirmNote || ''
     })),
-    repaidCents: repaid, repaidYuan: centsToYuan(repaid),
+    payQr: viewer === 'lender-full' ? undefined : (lender.payQr || {}),
     createdAt: loan.createdAt
   };
 }
 
-/* ---------------- 认证（HMAC cookie，无状态，重启不掉线） ---------------- */
-function sign(data) { return crypto.createHmac('sha256', db.config.secret).update(data).digest('hex'); }
+/* ---------------- 认证（手机号+密码，HMAC cookie 会话） ---------------- */
+function sign(data) { return crypto.createHmac('sha256', db.secret).update(data).digest('hex'); }
 function hashPassword(pw, salt) { return crypto.scryptSync(pw, salt, 64).toString('hex'); }
 function genSalt() { return crypto.randomBytes(16).toString('hex'); }
-function adminToken() {
-  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 30 * 86400000 })).toString('base64url');
+function sessionToken(uid) {
+  const payload = Buffer.from(JSON.stringify({ uid, exp: Date.now() + 30 * 86400000 })).toString('base64url');
   return payload + '.' + sign(payload);
 }
-function isAdmin(req) {
+function currentUser(req) {
   try {
     const t = (req.cookiesJar || '').trim();
-    if (!t) return false;
+    if (!t) return null;
     const [payload, sig] = t.split('.');
-    if (!payload || sig !== sign(payload)) return false;
-    const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString());
-    return exp > Date.now();
-  } catch (e) { return false; }
+    if (!payload || sig !== sign(payload)) return null;
+    const { uid, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    if (exp < Date.now()) return null;
+    return db.users.find(u => u.id === uid) || null;
+  } catch (e) { return null; }
 }
+const PHONE_RE = /^1[3-9]\d{9}$/;
+const IDCARD_RE = /^\d{17}[\dXx]$/;
 
-/* ---------------- 上传（凭证/收款码） ---------------- */
+/* ---------------- 上传（收款码/还款凭证） ---------------- */
 const storage = multer.diskStorage({
   destination: (req, f, cb) => cb(null, UPLOAD_DIR),
   filename: (req, f, cb) => {
@@ -146,167 +210,275 @@ const upload = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, f, cb) => {
-    const ok = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.pdf'].includes(path.extname(f.originalname).toLowerCase());
-    cb(ok ? null : new Error('仅支持图片或PDF凭证'), ok);
+    const ok = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic'].includes(path.extname(f.originalname).toLowerCase());
+    cb(ok ? null : new Error('仅支持图片'), ok);
   }
 });
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
-// 简易 cookie 解析（避免额外依赖）
 app.use((req, res, next) => {
-  req.cookiesJar = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('qj_admin='))?.slice(9) || '';
+  req.cookiesJar = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('iou_s='))?.slice(6) || '';
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 });
-function needAdmin(req, res, next) {
-  if (!isAdmin(req)) return res.status(401).json({ ok: false, msg: '未登录或会话过期' });
+function needLogin(req, res, next) {
+  const u = currentUser(req);
+  if (!u) return res.status(401).json({ ok: false, msg: '请先登录' });
+  req.user = u;
   next();
 }
-function setAdminCookie(res) { res.setHeader('Set-Cookie', `qj_admin=${adminToken()}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`); }
-function clearAdminCookie(res) { res.setHeader('Set-Cookie', 'qj_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'); }
+function setSessionCookie(res, uid) { res.setHeader('Set-Cookie', `iou_s=${sessionToken(uid)}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`); }
+function clearSessionCookie(res) { res.setHeader('Set-Cookie', `iou_s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`); }
 
-/* ================= 管理端 API ================= */
-app.get('/api/state', (req, res) => {
-  const c = db.config;
-  res.json({ ok: true, needSetup: !c.passwordHash, loggedIn: isAdmin(req), lender: c.lender, lpr4: LPR4 });
-});
-app.post('/api/setup', (req, res) => {
-  const pw = String(req.body.password || '');
-  if (pw.length < 6) return res.status(400).json({ ok: false, msg: '密码至少 6 位' });
-  if (db.config.passwordHash) return res.status(400).json({ ok: false, msg: '已初始化，请直接登录' });
-  const salt = genSalt();
-  db.config.passwordHash = hashPassword(pw, salt);
-  db.config.salt = salt;
-  saveDb();
-  setAdminCookie(res);
-  res.json({ ok: true });
-});
-app.post('/api/login', (req, res) => {
-  const pw = String(req.body.password || '');
-  const ok = db.config.passwordHash && crypto.timingSafeEqual(Buffer.from(hashPassword(pw, db.config.salt)), Buffer.from(db.config.passwordHash));
-  if (!ok) return res.status(401).json({ ok: false, msg: '密码错误' });
-  setAdminCookie(res);
-  res.json({ ok: true });
-});
-app.post('/api/logout', (req, res) => { clearAdminCookie(res); res.json({ ok: true }); });
-
-/* 设置：出借人信息 / 收款账户 */
-app.put('/api/settings', needAdmin, (req, res) => {
-  const { lender, password } = req.body || {};
-  if (lender) {
-    db.config.lender = { name: String(lender.name || '').trim(), idcard: String(lender.idcard || '').trim(), phone: String(lender.phone || '').trim() };
-  }
-  if (password && String(password).length >= 6) {
-    const salt = genSalt();
-    db.config.passwordHash = hashPassword(String(password), salt);
-    db.config.salt = salt;
-  }
-  saveDb();
-  res.json({ ok: true });
-});
-/* 收款方式查询/保存 */
-app.get('/api/settings/pay', needAdmin, (req, res) => {
-  const p = db.config.pay || {};
-  res.json({ ok: true, wechatImg: p.wechatImg || '', alipayImg: p.alipayImg || '', bank: p.bank || '' });
-});
-app.put('/api/settings/pay', needAdmin, (req, res) => {
+/* ================= 认证 API ================= */
+app.post('/api/auth/register', (req, res) => {
   const b = req.body || {};
-  db.config.pay = db.config.pay || {};
-  if (b.bank !== undefined) db.config.pay.bank = String(b.bank).trim();
-  // 允许传 null 清空图片
-  if (b.wechatImg !== undefined) db.config.pay.wechatImg = b.wechatImg ? String(b.wechatImg) : '';
-  if (b.alipayImg !== undefined) db.config.pay.alipayImg = b.alipayImg ? String(b.alipayImg) : '';
+  const phone = String(b.phone || '').trim();
+  const password = String(b.password || '');
+  const name = String(b.name || '').trim();
+  const idcard = String(b.idcard || '').trim().toUpperCase();
+  if (!PHONE_RE.test(phone)) return res.status(400).json({ ok: false, msg: '请填写正确的手机号' });
+  if (password.length < 6) return res.status(400).json({ ok: false, msg: '密码至少 6 位' });
+  if (!name) return res.status(400).json({ ok: false, msg: '请填写真实姓名（将写入借条）' });
+  if (!IDCARD_RE.test(idcard)) return res.status(400).json({ ok: false, msg: '请填写正确的 18 位身份证号' });
+  if (!b.agree) return res.status(400).json({ ok: false, msg: '请阅读并同意《用户协议》与《隐私政策》' });
+  if (db.users.some(u => u.phone === phone)) return res.status(400).json({ ok: false, msg: '该手机号已注册，请直接登录' });
+  const salt = genSalt();
+  const user = {
+    id: crypto.randomBytes(8).toString('hex'),
+    phone, name, idcard,
+    passwordHash: hashPassword(password, salt), salt,
+    payQr: { wechatImg: '', alipayImg: '', bank: '' },
+    createdAt: new Date().toISOString()
+  };
+  db.users.push(user);
   saveDb();
+  setSessionCookie(res, user.id);
   res.json({ ok: true });
 });
 
-/* 上传收款码图片: field=image, query/field type=wechat|alipay */
-app.post('/api/upload-payqr', needAdmin, upload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ ok: false, msg: '未收到图片' });
-  const type = req.body.type === 'alipay' ? 'alipay' : 'wechat';
-  db.config.pay = db.config.pay || {};
-  const old = db.config.pay[type + 'Img'];
-  if (old && fs.existsSync(path.join(UPLOAD_DIR, path.basename(old)))) { try { fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(old))); } catch (e) {} }
-  db.config.pay[type + 'Img'] = '/uploads/' + req.file.filename;
-  saveDb();
-  res.json({ ok: true, url: db.config.pay[type + 'Img'] });
-});
-
-/* 借条列表：统计始终基于全部借条，列表按筛选/搜索返回 */
-app.get('/api/loans', needAdmin, (req, res) => {
-  const filter = req.query.filter || 'all';
-  const q = String(req.query.q || '').toLowerCase();
-  const all = db.loans.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  let list = all;
-  if (filter !== 'all') {
-    list = all.filter(l => {
-      const st = l.status === 'paid' ? 'paid' : l.status === 'cancelled' ? 'cancelled' : today() > l.endDate ? 'overdue' : 'active';
-      return st === filter;
-    });
+app.post('/api/auth/login', (req, res) => {
+  const phone = String((req.body || {}).phone || '').trim();
+  const password = String((req.body || {}).password || '');
+  const u = db.users.find(x => x.phone === phone);
+  if (!u || !crypto.timingSafeEqual(Buffer.from(hashPassword(password, u.salt)), Buffer.from(u.passwordHash))) {
+    return res.status(401).json({ ok: false, msg: '手机号或密码错误' });
   }
-  if (q) list = list.filter(l => (l.borrower.name + l.borrower.phone + l.no + l.borrower.idcard).toLowerCase().includes(q));
-  res.json({ ok: true, loans: list.map(l => publicLoan(l, false)), stats: statsOf(all) });
+  setSessionCookie(res, u.id);
+  res.json({ ok: true });
 });
-function statsOf(list) {
-  let active = 0, overdue = 0, paid = 0, cancelled = 0, outCents = 0, repayCents = 0, todayDue = 0, remainCents = 0;
-  const td = today();
-  list.forEach(l => {
-    const st = l.status === 'paid' ? 'paid' : l.status === 'cancelled' ? 'cancelled' : td > l.endDate ? 'overdue' : 'active';
-    const due = l.amountCents + loanInterest(l);
-    if (st === 'active') { active++; outCents += l.amountCents; remainCents += due - confirmedTotal(l); }
-    if (st === 'overdue') { overdue++; outCents += l.amountCents; remainCents += due - confirmedTotal(l); }
-    if (st === 'paid') paid++;
-    if (st === 'cancelled') cancelled++;
-    if (st === 'active' && l.endDate === td) todayDue++;
-    repayCents += confirmedTotal(l);
-  });
-  return { active, overdue, paid, cancelled, todayDue, outYuan: centsToYuan(outCents), repayYuan: centsToYuan(repayCents), remainYuan: centsToYuan(remainCents) };
-}
+app.post('/api/auth/logout', (req, res) => { clearSessionCookie(res); res.json({ ok: true }); });
 
-app.post('/api/loans', needAdmin, (req, res) => {
+app.get('/api/me', (req, res) => {
+  const u = currentUser(req);
+  if (!u) return res.json({ ok: true, loggedIn: false, lpr4: LPR4 });
+  res.json({
+    ok: true, loggedIn: true, lpr4: LPR4,
+    user: { id: u.id, phone: u.phone, name: u.name, idcard: u.idcard, payQr: u.payQr, createdAt: u.createdAt }
+  });
+});
+/* 更新实名资料 */
+app.put('/api/me/profile', needLogin, (req, res) => {
   const b = req.body || {};
   const name = String(b.name || '').trim();
-  const phone = String(b.phone || '').trim();
+  const idcard = String(b.idcard || '').trim().toUpperCase();
+  if (!name) return res.status(400).json({ ok: false, msg: '请填写真实姓名' });
+  if (!IDCARD_RE.test(idcard)) return res.status(400).json({ ok: false, msg: '请填写正确的 18 位身份证号' });
+  req.user.name = name; req.user.idcard = idcard;
+  saveDb();
+  res.json({ ok: true });
+});
+/* 收款方式（各填各的，平台不经手资金） */
+app.get('/api/me/payqr', needLogin, (req, res) => {
+  const p = req.user.payQr || {};
+  res.json({ ok: true, wechatImg: p.wechatImg || '', alipayImg: p.alipayImg || '', bank: p.bank || '' });
+});
+app.put('/api/me/payqr', needLogin, (req, res) => {
+  const b = req.body || {};
+  req.user.payQr = req.user.payQr || { wechatImg: '', alipayImg: '', bank: '' };
+  if (b.bank !== undefined) req.user.payQr.bank = String(b.bank).trim();
+  if (b.wechatImg !== undefined) req.user.payQr.wechatImg = b.wechatImg ? String(b.wechatImg) : '';
+  if (b.alipayImg !== undefined) req.user.payQr.alipayImg = b.alipayImg ? String(b.alipayImg) : '';
+  saveDb();
+  res.json({ ok: true });
+});
+app.post('/api/me/payqr/upload', needLogin, upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, msg: '未收到图片' });
+  const type = req.body.type === 'alipay' ? 'alipay' : 'wechat';
+  req.user.payQr = req.user.payQr || { wechatImg: '', alipayImg: '', bank: '' };
+  const old = req.user.payQr[type + 'Img'];
+  if (old && fs.existsSync(path.join(UPLOAD_DIR, path.basename(old)))) { try { fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(old))); } catch (e) {} }
+  req.user.payQr[type + 'Img'] = '/uploads/' + req.file.filename;
+  saveDb();
+  res.json({ ok: true, url: req.user.payQr[type + 'Img'] });
+});
+
+/* ================= 借条 API ================= */
+/* 我的借条（我借出的 / 我借入的，按手机号匹配） */
+app.get('/api/loans/mine', needLogin, (req, res) => {
+  const me = req.user;
+  const asLender = db.loans.filter(l => l.lenderId === me.id);
+  const asBorrower = db.loans.filter(l => l.borrower.phone === me.phone);
+  const s = (arr, role) => arr.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(l => loanView(l, role));
+  res.json({
+    ok: true,
+    asLender: s(asLender, 'lender'),
+    asBorrower: s(asBorrower, 'borrower')
+  });
+});
+
+/* 创建借条（放款人操作，定向发给借款人手机号） */
+app.post('/api/loans', needLogin, (req, res) => {
+  const b = req.body || {};
+  const me = req.user;
+  const name = String(b.borrowerName || '').trim();
+  const phone = String(b.borrowerPhone || '').trim();
+  const idcard = String(b.borrowerIdcard || '').trim().toUpperCase();
   const amountCents = yuanToCents(b.amount);
-  if (!name) return res.status(400).json({ ok: false, msg: '请填写借款人姓名' });
-  if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '请填写正确的借款金额' });
-  if (!b.startDate || !b.endDate) return res.status(400).json({ ok: false, msg: '请选择借款起止日期' });
-  if (b.endDate < b.startDate) return res.status(400).json({ ok: false, msg: '到期日不能早于借款日' });
   const ratePct = Math.max(0, Number(b.ratePct) || 0);
-  if (ratePct > LPR4) {
-    // 允许，但必须显式确认风险
-    if (!b.riskAck) return res.status(400).json({ ok: false, msg: `年利率超过司法保护上限(${LPR4}%)，超出部分不受法律保护，请确认风险` });
+  if (!name) return res.status(400).json({ ok: false, msg: '请填写借款人姓名' });
+  if (!PHONE_RE.test(phone)) return res.status(400).json({ ok: false, msg: '请填写借款人手机号（借条将定向发送给该手机号注册的账号）' });
+  if (!IDCARD_RE.test(idcard)) return res.status(400).json({ ok: false, msg: '请填写借款人 18 位身份证号' });
+  if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '请填写正确的借款金额' });
+  if (phone === me.phone) return res.status(400).json({ ok: false, msg: '不能给自己创建借条' });
+  if (!b.startDate || !b.endDate) return res.status(400).json({ ok: false, msg: '请选择借款起止日期' });
+  if (b.endDate <= b.startDate) return res.status(400).json({ ok: false, msg: '到期日必须晚于借款日' });
+  const repayMethod = ['lump', 'monthly_interest', 'equal_installment'].includes(b.repayMethod) ? b.repayMethod : 'lump';
+  // 利率自由约定 + 强制风险确认（不拦截，但必须勾选已知悉）
+  if (ratePct > LPR4 && !b.riskAck) {
+    return res.status(400).json({ ok: false, msg: `年利率 ${ratePct}% 已超过司法保护上限（LPR4倍，约${LPR4}%），超出部分利息不受法律保护，请勾选已知悉风险后继续` });
   }
   const loan = {
     id: crypto.randomBytes(8).toString('hex'),
     token: crypto.randomBytes(12).toString('hex'),
     no: nextNo(),
-    borrower: { name, phone, idcard: String(b.idcard || '').trim() },
+    lenderId: me.id,
+    borrower: { name, phone, idcard },
     amountCents, ratePct,
     startDate: b.startDate, endDate: b.endDate,
-    purpose: String(b.purpose || '').trim(), note: String(b.note || '').trim(),
-    status: 'active',
+    repayMethod,
+    purpose: String(b.purpose || '').trim(),
+    note: String(b.note || '').trim(),
+    status: 'pending',          // 待借款人确认
+    confirmAt: null, confirmName: '',
     repayments: [],
-    createdAt: new Date().toISOString(),
-    confirmedAt: null
+    createdAt: new Date().toISOString()
   };
   db.loans.push(loan);
   saveDb();
-  res.json({ ok: true, loan: publicLoan(loan, true), link: `${req.protocol}://${req.get('host')}/p/${loan.token}` });
+  res.json({
+    ok: true, loan: loanView(loan, 'lender'),
+    link: `${req.protocol}://${req.get('host')}/p/${loan.token}`,
+    msg: '借条已创建，等待借款人登录确认'
+  });
 });
 
-app.get('/api/loans/:id', needAdmin, (req, res) => {
+function findMine(req, res) {
+  const me = req.user;
   const l = db.loans.find(x => x.id === req.params.id);
-  if (!l) return res.status(404).json({ ok: false, msg: '借条不存在' });
-  res.json({ ok: true, loan: publicLoan(l, true), link: `${req.protocol}://${req.get('host')}/p/${l.token}`, no: l.no });
+  if (!l) { res.status(404).json({ ok: false, msg: '借条不存在' }); return null; }
+  const isLender = l.lenderId === me.id;
+  const isBorrower = l.borrower.phone === me.phone;
+  if (!isLender && !isBorrower) { res.status(403).json({ ok: false, msg: '无权查看该借条' }); return null; }
+  return { l, role: isLender ? 'lender' : 'borrower' };
+}
+
+app.get('/api/loans/:id', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  res.json({ ok: true, loan: loanView(f.l, f.role), role: f.role, link: `${req.protocol}://${req.get('host')}/p/${f.l.token}` });
 });
 
-/* 确认收款：标记某条还款记录已到账，可修正实收金额 */
-app.post('/api/loans/:id/repay/:rid/confirm', needAdmin, (req, res) => {
-  const l = db.loans.find(x => x.id === req.params.id);
-  if (!l) return res.status(404).json({ ok: false, msg: '借条不存在' });
+/* 借款人确认借款（双方合意） */
+app.post('/api/loans/:id/confirm', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'borrower') return res.status(403).json({ ok: false, msg: '只有借款人可以确认借条' });
+  if (l.status !== 'pending') return res.status(400).json({ ok: false, msg: l.confirmAt ? '该借条已确认' : '当前状态不可确认' });
+  if (req.user.name !== l.borrower.name) {
+    return res.status(400).json({ ok: false, msg: `实名不一致：该借条指定借款人为「${l.borrower.name}」，当前账号实名「${req.user.name}」，请核对后联系出借人更正` });
+  }
+  l.status = 'confirmed';
+  l.confirmAt = new Date().toISOString();
+  l.confirmName = req.user.name;
+  saveDb();
+  res.json({ ok: true, msg: '借条已确认生效', loan: loanView(l, role) });
+});
+/* 借款人驳回（信息有误） */
+app.post('/api/loans/:id/reject', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'borrower') return res.status(403).json({ ok: false, msg: '只有借款人可以驳回' });
+  if (l.status !== 'pending') return res.status(400).json({ ok: false, msg: '当前状态不可驳回' });
+  l.status = 'rejected';
+  l.rejectNote = String((req.body || {}).note || '').trim();
+  saveDb();
+  res.json({ ok: true, msg: '借条已驳回，请让出借人修改后重新发送' });
+});
+/* 放款人作废待确认借条 */
+app.post('/api/loans/:id/cancel', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'lender') return res.status(403).json({ ok: false, msg: '只有出借人可以作废' });
+  if (confirmedTotal(l) > 0) return res.status(400).json({ ok: false, msg: '已有确认到账的还款记录，不能作废' });
+  l.status = 'cancelled';
+  saveDb();
+  res.json({ ok: true, msg: '借条已作废' });
+});
+/* 放款人编辑待确认借条（被驳回后修改重发） */
+app.put('/api/loans/:id', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'lender') return res.status(403).json({ ok: false, msg: '只有出借人可以修改' });
+  if (l.status !== 'rejected' && l.status !== 'pending') return res.status(400).json({ ok: false, msg: '仅待确认/被驳回的借条可以修改' });
+  const b = req.body || {};
+  const ratePct = Math.max(0, Number(b.ratePct) || 0);
+  if (ratePct > LPR4 && !b.riskAck) return res.status(400).json({ ok: false, msg: `年利率 ${ratePct}% 超过司法保护上限（约${LPR4}%），请勾选已知悉风险` });
+  if (b.amount !== undefined) { const c = yuanToCents(b.amount); if (!c || c <= 0) return res.status(400).json({ ok: false, msg: '金额无效' }); l.amountCents = c; }
+  if (b.ratePct !== undefined) l.ratePct = ratePct;
+  if (b.startDate) l.startDate = b.startDate;
+  if (b.endDate) { if (b.endDate <= l.startDate) return res.status(400).json({ ok: false, msg: '到期日必须晚于借款日' }); l.endDate = b.endDate; }
+  if (b.repayMethod && ['lump', 'monthly_interest', 'equal_installment'].includes(b.repayMethod)) l.repayMethod = b.repayMethod;
+  if (b.purpose !== undefined) l.purpose = String(b.purpose).trim();
+  if (b.note !== undefined) l.note = String(b.note).trim();
+  l.status = 'pending'; // 修改后重新待确认
+  l.rejectNote = '';
+  saveDb();
+  res.json({ ok: true, msg: '借条已修改并重新发送确认', loan: loanView(l, 'lender') });
+});
+
+/* 借款人提交还款凭证（线下转账，平台不经手资金） */
+app.post('/api/loans/:id/repay', needLogin, upload.single('voucher'), (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'borrower') return res.status(403).json({ ok: false, msg: '只有借款人可以提交还款' });
+  if (l.status === 'cancelled' || l.status === 'rejected') return res.status(400).json({ ok: false, msg: '该借条未生效' });
+  if (l.status === 'paid') return res.status(400).json({ ok: false, msg: '该笔借款已结清' });
+  if (!l.confirmAt) return res.status(400).json({ ok: false, msg: '请先确认借条后再提交还款' });
+  const method = String(req.body.method || '');
+  if (!['wechat', 'alipay', 'bank', 'cash'].includes(method)) return res.status(400).json({ ok: false, msg: '请选择转账方式' });
+  const amountCents = yuanToCents(req.body.amount);
+  if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '请填写转账金额' });
+  const r = {
+    id: crypto.randomBytes(8).toString('hex'),
+    amountCents, method,
+    ref: String(req.body.ref || '').trim(),
+    note: String(req.body.note || '').trim(),
+    voucher: req.file ? '/uploads/' + req.file.filename : null,
+    voucherName: req.file ? req.file.originalname : null,
+    submittedAt: new Date().toISOString(),
+    confirmedAt: null, status: 'pending', confirmNote: ''
+  };
+  l.repayments.push(r);
+  saveDb();
+  res.json({ ok: true, msg: '提交成功，等待出借人确认到账' });
+});
+/* 出借人确认/驳回还款 */
+app.post('/api/loans/:id/repay/:rid/confirm', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'lender') return res.status(403).json({ ok: false, msg: '只有出借人可以确认到账' });
   const r = (l.repayments || []).find(x => x.id === req.params.rid);
   if (!r) return res.status(404).json({ ok: false, msg: '还款记录不存在' });
   const actual = req.body.actualAmount !== undefined && req.body.actualAmount !== null && req.body.actualAmount !== ''
@@ -317,235 +489,80 @@ app.post('/api/loans/:id/repay/:rid/confirm', needAdmin, (req, res) => {
   r.confirmNote = String(req.body.note || '').trim();
   if (confirmedTotal(l) >= l.amountCents + loanInterest(l)) l.status = 'paid';
   saveDb();
-  res.json({ ok: true, loan: publicLoan(l, true) });
+  res.json({ ok: true, loan: loanView(l, 'lender') });
 });
-app.post('/api/loans/:id/repay/:rid/reject', needAdmin, (req, res) => {
-  const l = db.loans.find(x => x.id === req.params.id);
-  if (!l) return res.status(404).json({ ok: false, msg: '借条不存在' });
+app.post('/api/loans/:id/repay/:rid/reject', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l, role } = f;
+  if (role !== 'lender') return res.status(403).json({ ok: false, msg: '只有出借人可以驳回' });
   const r = (l.repayments || []).find(x => x.id === req.params.rid);
   if (!r) return res.status(404).json({ ok: false, msg: '还款记录不存在' });
   r.status = 'rejected';
   r.confirmNote = String(req.body.note || '已驳回').trim();
   saveDb();
-  res.json({ ok: true, loan: publicLoan(l, true) });
-});
-/* 作废 / 恢复借条 */
-app.post('/api/loans/:id/status', needAdmin, (req, res) => {
-  const l = db.loans.find(x => x.id === req.params.id);
-  if (!l) return res.status(404).json({ ok: false, msg: '借条不存在' });
-  const s = req.body.status;
-  if (s === 'cancelled') l.status = 'cancelled';
-  if (s === 'reactivate') l.status = 'active';
-  saveDb();
-  res.json({ ok: true, loan: publicLoan(l, true) });
-});
-app.delete('/api/loans/:id', needAdmin, (req, res) => {
-  const i = db.loans.findIndex(x => x.id === req.params.id);
-  if (i < 0) return res.status(404).json({ ok: false, msg: '借条不存在' });
-  db.loans.splice(i, 1);
-  saveDb();
-  res.json({ ok: true });
+  res.json({ ok: true, loan: loanView(l, 'lender') });
 });
 
-/* ================= 借款人公开端 ================= */
-app.get('/api/p/:token', (req, res) => {
-  const l = db.loans.find(x => x.token === req.params.token);
-  if (!l) return res.status(404).json({ ok: false, msg: '未找到该借款记录，请核对链接' });
-  res.json({ ok: true, loan: publicLoan(l, true) });
-});
-/* 借款人确认借条内容 */
-app.post('/api/p/:token/confirm', (req, res) => {
-  const l = db.loans.find(x => x.token === req.params.token);
-  if (!l) return res.status(404).json({ ok: false, msg: '未找到借款记录' });
-  if (l.confirmedAt) return res.json({ ok: true, msg: '已确认过' });
-  l.confirmedAt = new Date().toISOString();
-  saveDb();
-  res.json({ ok: true });
-});
-/* 借款人提交还款凭证 */
-app.post('/api/p/:token/pay', upload.single('voucher'), (req, res) => {
-  const l = db.loans.find(x => x.token === req.params.token);
-  if (!l) return res.status(404).json({ ok: false, msg: '未找到借款记录' });
-  if (l.status === 'cancelled') return res.status(400).json({ ok: false, msg: '该借条已作废' });
-  if (l.status === 'paid') return res.status(400).json({ ok: false, msg: '该笔借款已结清' });
-  const method = String(req.body.method || '');
-  if (!['wechat', 'alipay', 'bank', 'cash'].includes(method)) return res.status(400).json({ ok: false, msg: '请选择转账方式' });
-  const amountCents = yuanToCents(req.body.amount);
-  if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '请填写转账金额' });
-  const r = {
-    id: crypto.randomBytes(8).toString('hex'),
-    amountCents,
-    method,
-    ref: String(req.body.ref || '').trim(),
-    note: String(req.body.note || '').trim(),
-    voucher: req.file ? '/uploads/' + req.file.filename : null,
-    voucherName: req.file ? req.file.originalname : null,
-    submittedAt: new Date().toISOString(),
-    confirmedAt: null,
-    status: 'pending',
-    confirmNote: ''
-  };
-  l.repayments.push(r);
-  saveDb();
-  res.json({ ok: true, repayment: { id: r.id }, msg: '提交成功，等待出借人确认到账' });
+/* .ics 日历文件：还款计划导入手机日历（提醒还款日+金额） */
+app.get('/api/loans/:id/calendar', needLogin, (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const { l } = f;
+  if (!l.confirmAt) return res.status(400).json({ ok: false, msg: '借条确认后才能导出还款计划' });
+  const schedule = buildSchedule(l);
+  const pad = s => '0' + s;
+  function icsDate(d) { return d.replace(/-/g, '') + 'T090000'; } // 上午9点提醒
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IOU Friend//CN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    `X-WR-CALNAME:还款计划-${l.borrower.name}`
+  ];
+  schedule.forEach(s => {
+    const uid = `${l.no}-${s.idx}@iou`;
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTSTART;TZID=Asia/Shanghai:${icsDate(s.dueDate)}`,
+      `DTEND;TZID=Asia/Shanghai:${icsDate(s.dueDate)}`,
+      `SUMMARY:还款提醒 ${l.no} 第${s.idx}期 ¥${centsToYuan(s.totalCents)}`,
+      `DESCRIPTION:借条编号 ${l.no}\\n借款人 ${l.borrower.name}\\n本期应还 ¥${centsToYuan(s.totalCents)}（本金¥${centsToYuan(s.principalCents)} + 利息¥${centsToYuan(s.interestCents)}）\\n到期日 ${s.dueDate}\\n请通过出借人收款方式完成还款并提交凭证。`,
+      'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY',
+      `DESCRIPTION:明天是还款日：${l.no} 第${s.idx}期 ¥${centsToYuan(s.totalCents)}`, 'END:VALARM',
+      'END:VEVENT'
+    );
+  });
+  lines.push('END:VCALENDAR');
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="repay-${l.no}.ics"`);
+  res.send(lines.join('\r\n'));
 });
 
-/* ================= 微信 Native 在线支付（借款人扫码，主动查单确认到账） ================= */
-function wxCfg() { return wxpay.loadWxConfig(); }
-function wxEnabled() { return !!wxCfg(); }
-/** 生成商户订单号：JD + 时间戳 + 随机 */
-function genOutTradeNo() {
-  const d = new Date();
-  const ts = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
-  return 'JD' + ts + crypto.randomBytes(3).toString('hex').toUpperCase();
-}
-/** 应还剩余（分）：本金+利息-已确认 */
-function loanRemain(loan) {
-  if (loan.status === 'paid' || loan.status === 'cancelled') return 0;
-  return loan.amountCents + loanInterest(loan) - confirmedTotal(loan);
-}
-/** 依据订单主动查单 → 到账则登记还款记录（幂等） */
-async function settleByOrder(order) {
-  const cfg = wxCfg();
-  if (!cfg) return { ok: false, msg: '在线支付未启用' };
-  const q = await wxpay.queryOrder(cfg, order.outTradeNo);
-  if (!q.ok || q.tradeState !== 'SUCCESS') return { ok: false, msg: q.msg || q.tradeState, tradeState: q.tradeState };
-  // 幂等：该订单已结算 / 该微信交易号已入账
-  if (order.status === 'paid') return { ok: true, done: true };
-  const loan = db.loans.find(x => x.token === order.loanToken);
-  if (!loan) return { ok: false, msg: '借条不存在' };
-  const dup = (loan.repayments || []).some(r => r.wxTxnId && r.wxTxnId === q.transactionId);
-  if (dup) { order.status = 'paid'; saveDb(); return { ok: true, done: true }; }
-  const r = {
-    id: crypto.randomBytes(8).toString('hex'),
-    amountCents: q.amountCents || order.amountCents,
-    method: 'wxpay', // 微信在线支付：自动确认到账
-    ref: order.outTradeNo,
-    note: '微信扫码在线支付（自动到账）',
-    voucher: null, voucherName: null,
-    wxTxnId: q.transactionId || '',
-    submittedAt: new Date().toISOString(),
-    confirmedAt: new Date().toISOString(),
-    status: 'confirmed',
-    confirmNote: '微信支付自动确认'
-  };
-  loan.repayments.push(r);
-  order.status = 'paid';
-  order.paidAt = r.confirmedAt;
-  order.txnId = q.transactionId || '';
-  if (confirmedTotal(loan) >= loan.amountCents + loanInterest(loan)) loan.status = 'paid';
-  saveDb();
-  return { ok: true, done: true, repaidYuan: centsToYuan(confirmedTotal(loan)) };
-}
-
-/* 1. 借款人发起在线支付：创建 Native 订单，返回 code_url 供页面生成二维码 */
-app.post('/api/p/:token/wxpay', async (req, res) => {
-  try {
-    const cfg = wxCfg();
-    if (!cfg) return res.status(400).json({ ok: false, msg: '在线支付未启用（出借人未配置微信商户）' });
-    const l = db.loans.find(x => x.token === req.params.token);
-    if (!l) return res.status(404).json({ ok: false, msg: '未找到借款记录' });
-    if (l.status === 'cancelled') return res.status(400).json({ ok: false, msg: '该借条已作废' });
-    if (l.status === 'paid') return res.status(400).json({ ok: false, msg: '该笔借款已结清' });
-    if (!l.confirmedAt) return res.status(400).json({ ok: false, msg: '请先确认借条内容' });
-    const amountCents = req.body.amountCents !== undefined
-      ? Math.round(Number(req.body.amountCents))
-      : loanRemain(l);
-    const remain = loanRemain(l);
-    if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '金额无效' });
-    if (amountCents > remain) return res.status(400).json({ ok: false, msg: `最多应还 ¥${centsToYuan(remain)}` });
-    // 清掉该借条未支付的旧订单（防堆积）
-    db.payOrders = db.payOrders.filter(o => !(o.loanToken === l.token && o.status !== 'paid'));
-    const outTradeNo = genOutTradeNo();
-    const notifyUrl = `${req.protocol}://${req.get('host')}/api/wxpay/notify`;
-    const order = await wxpay.createNativeOrder(cfg, {
-      outTradeNo,
-      amountCents,
-      description: `还款-${l.borrower.name}-${l.no}`,
-      notifyUrl
-    });
-    if (!order.ok) return res.status(502).json({ ok: false, msg: order.msg || '下单失败' });
-    db.payOrders.push({ outTradeNo, loanToken: l.token, loanId: l.id, amountCents, status: 'created', createdAt: new Date().toISOString(), paidAt: null, txnId: '' });
-    saveDb();
-    // 直接生成二维码 dataURL，页面免引入额外 JS
-    const qr = await QRCode.toDataURL(order.codeUrl, { margin: 1, width: 480, color: { dark: '#16324f', light: '#ffffff' } });
-    res.json({ ok: true, outTradeNo, codeUrl: order.codeUrl, qr, amountCents, remainYuan: centsToYuan(remain) });
-  } catch (e) {
-    const m = String(e.message || '');
-    // 配置/密钥类错误统一为通用提示，避免向借款人暴露内部细节
-    if (/DECODER|PEM|私钥|key|signature|certificate|HTTP \d+|超时/i.test(m) && !/微信下单失败/.test(m)) {
-      console.error('[wxpay] 下单异常:', m);
-      return res.status(502).json({ ok: false, msg: '在线支付暂时不可用，请改用线下转账方式，或联系出借人稍后重试' });
-    }
-    res.status(502).json({ ok: false, msg: m || '下单失败' });
-  }
-});
-
-/* 2. 页面轮询：主动查单确认到账（最终依据，防伪） */
-app.get('/api/p/:token/wxpay/status', async (req, res) => {
-  try {
-    const l = db.loans.find(x => x.token === req.params.token);
-    if (!l) return res.status(404).json({ ok: false, msg: '未找到借款记录' });
-    const outTradeNo = String(req.query.no || '');
-    const order = db.payOrders.find(o => o.outTradeNo === outTradeNo && o.loanToken === l.token);
-    if (!order) return res.status(404).json({ ok: false, msg: '订单不存在' });
-    if (order.status === 'paid') {
-      return res.json({ ok: true, state: 'paid', loan: publicLoan(l, true) });
-    }
-    const st = await settleByOrder(order);
-    if (st.ok) return res.json({ ok: true, state: 'paid', loan: publicLoan(l, true) });
-    return res.json({ ok: true, state: (st.tradeState || 'NOTPAY'), loan: publicLoan(l, true) });
-  } catch (e) {
-    res.status(500).json({ ok: false, msg: e.message });
-  }
-});
-
-/* 3. 微信异步回调：解密后同样走主动查单（幂等） */
-app.post('/api/wxpay/notify', async (req, res) => {
-  const cfg = wxCfg();
-  try {
-    const resource = (req.body && req.body.resource) || {};
-    let outTradeNo = '';
-    if (cfg && resource.ciphertext) {
-      try {
-        const dec = wxpay.decryptNotify(cfg.apiV3Key, {
-          ciphertext: resource.ciphertext,
-          nonce: resource.nonce || '',
-          associatedData: resource.associated_data || ''
-        });
-        outTradeNo = dec.out_trade_no || '';
-        // 若回调标记交易成功，直接查单落账
-        if (outTradeNo) {
-          const order = db.payOrders.find(o => o.outTradeNo === outTradeNo);
-          if (order && order.status !== 'paid') await settleByOrder(order);
-        }
-      } catch (e) { /* 解密失败忽略，靠轮询兜底 */ }
-    }
-    // 微信要求应答成功，否则重试轰炸
-    res.json({ code: 'SUCCESS', message: 'OK' });
-  } catch (e) {
-    res.json({ code: 'SUCCESS', message: 'OK' });
-  }
-});
-
-/* 还款链接二维码（管理端） */
-app.get('/api/loans/:id/qrcode', needAdmin, async (req, res) => {
-  const l = db.loans.find(x => x.id === req.params.id);
-  if (!l) return res.status(404).json({ ok: false, msg: '不存在' });
-  const url = `${req.protocol}://${req.get('host')}/p/${l.token}`;
+/* 分享二维码（指向公开借条页） */
+app.get('/api/loans/:id/qrcode', needLogin, async (req, res) => {
+  const f = findMine(req, res); if (!f) return;
+  const url = `${req.protocol}://${req.get('host')}/p/${f.l.token}`;
   try {
     const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 640, color: { dark: '#16324f', light: '#ffffff' } });
     res.json({ ok: true, url, dataUrl });
   } catch (e) { res.status(500).json({ ok: false, msg: '二维码生成失败' }); }
 });
 
-/* 页面 */
-app.get('/p/:token', (req, res) => {
-  if (!db.loans.find(x => x.token === req.params.token)) return res.status(404).send('<h3 style="font-family:sans-serif;text-align:center;margin-top:20vh">未找到该借款记录，请核对链接是否正确</h3>');
-  res.sendFile(path.join(__dirname, 'public', 'repay.html'));
+/* ================= 公开借条页（免登录查看，确认需登录） ================= */
+app.get('/api/p/:token', (req, res) => {
+  const l = db.loans.find(x => x.token === req.params.token);
+  if (!l) return res.status(404).json({ ok: false, msg: '未找到该借条，请核对链接' });
+  const me = currentUser(req);
+  res.json({ ok: true, loan: loanView(l, 'pub'), loggedIn: !!me, isBorrower: !!(me && me.phone === l.borrower.phone) });
 });
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get('/', (req, res) => res.redirect('/admin'));
+
+/* ================= 页面 ================= */
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/auth', (req, res) => res.sendFile(path.join(__dirname, 'public', 'auth.html')));
+app.get('/u', (req, res) => res.sendFile(path.join(__dirname, 'public', 'u.html')));
+app.get('/u/*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'u.html')));
+app.get('/p/:token', (req, res) => {
+  if (!db.loans.find(x => x.token === req.params.token)) return res.status(404).send('<h3 style="font-family:sans-serif;text-align:center;margin-top:20vh">未找到该借条，请核对链接是否正确</h3>');
+  res.sendFile(path.join(__dirname, 'public', 'pub.html'));
+});
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-app.listen(PORT, () => console.log(`[借条] http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`[好友借条v2] http://localhost:${PORT}`));

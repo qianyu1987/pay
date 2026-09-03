@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>借条查看 · 好友借条</title>
+<style>
+:root{
+  --primary:#16406e; --primary-2:#1a5fb4; --primary-light:#eaf2fb;
+  --success:#188038; --success-bg:#e6f4ea;
+  --danger:#d93025; --danger-bg:#fce8e6;
+  --warn:#b06000; --warn-bg:#fef7e0;
+  --orange:#e8710a; --orange-bg:#fef0e4;
+  --text:#202124; --text-2:#5f6368; --text-3:#9aa0a6;
+  --bg:#f5f7fa; --card:#ffffff; --line:#e8eaed;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding-bottom:60px}
+.wrap{max-width:720px;margin:0 auto;padding:16px}
+.topbar{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;padding:12px 0}
+.topbar .wrap{display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
+.logo .ic{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center}
+.card{background:var(--card);border-radius:var(--radius);padding:18px 16px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:14px}
+h2.sec{font-size:16px;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.d-hero{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;border-radius:var(--radius);padding:22px 18px;margin-bottom:14px}
+.d-hero .no{font-family:ui-monospace,monospace;font-size:12px;opacity:.85}
+.d-hero .amt{font-size:32px;font-weight:800;margin:6px 0 2px}
+.d-hero .sub{font-size:13px;opacity:.9}
+.d-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.d-item{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.d-item .k{font-size:11.5px;color:var(--text-3)}
+.d-item .v{font-size:14.5px;font-weight:700;margin-top:2px;word-break:break-all}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 18px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none}
+.btn-block{display:flex;width:100%}
+.btn-p{background:var(--primary-2);color:#fff}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--text-3);font-weight:600;font-size:11.5px;padding:8px 6px;border-bottom:1px solid var(--line)}
+td{padding:9px 6px;border-bottom:1px solid #f3f4f6}
+.t-r{text-align:right}
+.party{display:flex;gap:10px;align-items:center}
+.party .pi{flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;background:rgba(255,255,255,.22);color:#fff}
+.loanfull{font-size:13.5px;line-height:2;background:#fbf9f4;border:1px solid #eadfc8;border-radius:10px;padding:16px 14px}
+.loanfull .t{font-size:15px;font-weight:800;text-align:center;letter-spacing:2px;display:block;margin-bottom:8px}
+.loanfull .ln{border-bottom:1px solid #333;padding:2px 0}
+.login-guide{background:var(--orange-bg);border:2px solid #f6c48e;border-radius:var(--radius);padding:18px;text-align:center;margin-bottom:14px}
+.login-guide h3{font-size:16px;color:var(--orange);margin-bottom:6px}
+.login-guide p{font-size:13px;color:var(--text-2);margin-bottom:12px}
+footer{padding:20px 0 10px;text-align:center}
+footer p{font-size:11.5px;color:var(--text-3);line-height:1.8}
+.riskline{margin-top:10px;background:var(--danger-bg);border-radius:10px;padding:10px 12px;font-size:12.5px;color:#a50e0e}
+.loading{text-align:center;padding:60px;color:var(--text-3)}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap">
+  <div class="logo"><span class="ic">📄</span>好友借条</div>
+  <a class="btn" style="background:rgba(255,255,255,.18);color:#fff;padding:7px 14px;font-size:13px" href="/">首页</a>
+</div></div>
+<div class="wrap" id="app"><div class="loading">加载中…</div></div>
+<footer><div class="wrap"><p>⚖️ 免责声明：本平台仅为借条生成与记账辅助工具，不参与任何资金往来、不审核借条真实性。借贷纠纷由双方依法解决。</p></div></footer>
+<script>
+'use strict';
+const app=document.getElementById('app');
+const MTH={lump:'到期一次性还本付息',monthly_interest:'按月付息 · 到期还本',equal_installment:'按月等额本息'};
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function money(y){return '¥'+Number(y).toFixed(2)}
+function rmbUpper(n){return''}
+const token=location.pathname.split('/').pop();
+fetch('/api/p/'+token).then(r=>r.json()).then(j=>{
+  if(!j.ok){app.innerHTML='<div class="loading">'+esc(j.msg)+'</div>';return}
+  const l=j.loan;
+  const st=j.loggedIn?(j.isBorrower?'pubB':'pubL'):'guest';
+  const stateTxt=l.status==='paid'?'✅ 已结清':l.status==='cancelled'?'🚫 已作废':l.status==='rejected'?'❌ 已驳回':l.status==='pending'?'⏳ 待借款人确认':l.confirmAt?(new Date().toISOString().slice(0,10)>l.endDate?'⚠️ 已逾期':'🔵 生效中'):'⏳ 待确认';
+  app.innerHTML=`
+  <div class="d-hero">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span class="no">借条编号 ${esc(l.no)}</span><span class="badge">${stateTxt}</span>
+    </div>
+    <div class="amt">${money(l.amountYuan)} <small style="font-size:15px">元</small></div>
+    <div class="sub">向 ${esc(l.lender.name)} 借款 · 年利率 ${l.ratePct}% · ${esc(MTH[l.repayMethod])}</div>
+  </div>
+
+  ${st==='guest'?`
+  <div class="login-guide">
+    <h3>🙋 你是这张借条的借款人吗？</h3>
+    <p>用借条指定的手机号（${esc(l.borrower.phone.slice(0,3))}****${esc(l.borrower.phone.slice(-4))}）注册/登录后<br>可查看借条全文、<b>确认借款</b>、查看还款计划并提交还款凭证。</p>
+    <a class="btn btn-p" href="/auth?mode=register">注册并确认借条</a>
+    <a class="btn" style="background:#fff;color:var(--primary-2);margin-left:8px" href="/auth?mode=login">已有账号，登录</a>
+  </div>`:''}
+
+  ${st==='pubB'?`
+  <div class="login-guide" style="background:var(--primary-light);border-color:#bcd3ee">
+    <h3 style="color:var(--primary-2)">📲 这是指向你的借条</h3>
+    <p>进入个人中心即可查看借条全文并确认。</p>
+    <a class="btn btn-p" href="/u#/loan/${l.id}">进入个人中心处理借条</a>
+  </div>`:''}
+
+  <div class="card">
+    <h2 class="sec">👥 借贷双方</h2>
+    <div class="party" style="margin-bottom:12px">
+      <div class="pi" style="background:var(--primary-light)">💰</div>
+      <div><div style="font-size:14.5px;font-weight:700">出借人：${esc(l.lender.name)}</div>
+      <div style="font-size:12px;color:var(--text-2)">身份证 ${esc(l.lender.idcard||'—')}</div></div>
+    </div>
+    <div class="party">
+      <div class="pi" style="background:var(--warn-bg)">🙋</div>
+      <div><div style="font-size:14.5px;font-weight:700">借款人：${esc(l.borrower.name)}</div>
+      <div style="font-size:12px;color:var(--text-2)">身份证 ${esc(l.borrower.idcard||'—')}</div></div>
+    </div>
+    ${l.confirmAt?`<div style="margin-top:12px;padding:10px;background:var(--success-bg);border-radius:10px;font-size:13px;color:var(--success)">✅ 借款人已确认本借条，双方达成合意（${new Date(l.confirmAt).toLocaleString('zh-CN')}）</div>`:''}
+  </div>
+
+  <div class="card">
+    <h2 class="sec">📋 借款明细</h2>
+    <div class="d-grid">
+      <div class="d-item"><div class="k">借款本金</div><div class="v">${money(l.amountYuan)} 元</div></div>
+      <div class="d-item"><div class="k">借期利息</div><div class="v">${money(l.interestYuan)} 元</div></div>
+      <div class="d-item"><div class="k">本息合计</div><div class="v" style="color:var(--primary-2)">${money(l.dueTotalYuan)} 元</div></div>
+      <div class="d-item"><div class="k">期限</div><div class="v" style="font-size:13px">${esc(l.startDate)} → ${esc(l.endDate)}</div></div>
+    </div>
+    ${l.ratePct>12.4?`<div class="riskline">⚠️ <b>利率风险提示：</b>本借条约定年利率 ${l.ratePct}% 超过司法保护上限（LPR4倍，约12.4%），超出部分利息不受法律保护。</div>`:''}
+  </div>
+
+  ${l.confirmAt?`
+  <div class="card">
+    <h2 class="sec">📅 还款计划</h2>
+    <table>
+      <tr><th>期数</th><th>到期日</th><th class="t-r">本金</th><th class="t-r">利息</th><th class="t-r">应还</th></tr>
+      ${l.schedule.map(s=>`<tr><td>${s.idx}</td><td>${esc(s.dueDate)}</td><td class="t-r">${(s.principalCents/100).toFixed(2)}</td><td class="t-r">${(s.interestCents/100).toFixed(2)}</td><td class="t-r"><b>${s.dueYuan}</b></td></tr>`).join('')}
+    </table>
+  </div>`:''}
+
+  <div class="card">
+    <h2 class="sec">⚖️ 借条全文</h2>
+    <div class="loanfull">
+      <span class="t">借　条</span>
+      <div class="ln">今 <b>${esc(l.borrower.name)}</b>（身份证号：${esc(l.borrower.idcard||'')}）向 <b>${esc(l.lender.name)}</b>（身份证号：${esc(l.lender.idcard||'')}）借款人民币 <b>${money(l.amountYuan)} 元</b>。</div>
+      <div class="ln">借款期限：自 <b>${esc(l.startDate)}</b> 起至 <b>${esc(l.endDate)}</b> 止，共 ${l.days} 天。年利率 <b>${l.ratePct}%</b>，${esc(MTH[l.repayMethod]||'')}。</div>
+      <div class="ln">本借条编号 <b>${esc(l.no)}</b>，经借贷双方在「好友借条」平台线上确认后生效。${l.confirmAt?`借款人已于 ${new Date(l.confirmAt).toLocaleString('zh-CN')} 在线确认。`:'（待借款人线上确认）'}</div>
+      <div style="font-size:11.5px;color:#8a7a50;margin-top:8px;line-height:1.8">※ 本平台仅为借条生成与记账辅助工具，不参与任何资金往来，不审核借条真实性及借贷事实。借贷利率由双方自行约定，超过司法保护上限（LPR4倍）部分不受法律保护。因本借条产生的纠纷由借贷双方自行依法解决。</div>
+    </div>
+  </div>`;
+});
+</script>
+</body>
+</html>
