@@ -130,6 +130,24 @@ function loanInterest(loan) {
 function confirmedTotal(loan) {
   return (loan.repayments || []).filter(r => r.status === 'confirmed').reduce((s, r) => s + (r.amountCents || 0), 0);
 }
+/** 打卡分配：将已确认到账的还款分摊到各期（先按 scheduleIdx 定向打卡，溢出与未指定期次按时间顺序瀑布式抵扣最早未还期） */
+function applyPaid(loan, schedule) {
+  const conf = (loan.repayments || []).filter(r => r.status === 'confirmed')
+    .slice().sort((a, b) => String(a.confirmedAt || '').localeCompare(String(b.confirmedAt || '')));
+  for (const r of conf) {
+    let rest = r.amountCents || 0;
+    const tag = Number(r.scheduleIdx) || 0;
+    if (tag >= 1) {
+      const s = schedule.find(x => x.idx === tag);
+      if (s) { const take = Math.min(rest, Math.max(0, s.totalCents - s.paidCents)); s.paidCents += take; rest -= take; }
+    }
+    for (const s of schedule) {
+      if (rest <= 0) break;
+      const take = Math.min(rest, Math.max(0, s.totalCents - s.paidCents));
+      s.paidCents += take; rest -= take;
+    }
+  }
+}
 function nextNo() {
   const d = new Date();
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -146,6 +164,7 @@ function loanView(loan, role, viewer) {
   const interest = loanInterest(loan);
   const repaid = confirmedTotal(loan);
   const schedule = buildSchedule(loan);
+  applyPaid(loan, schedule);
   const lender = db.users.find(u => u.id === loan.lenderId) || { name: '(已注销)', phone: '', idcard: '' };
   const mask = s => (s || '').length > 6 ? String(s).slice(0, 3) + '***********' + String(s).slice(-4) : '***';
   const state = loan.status === 'paid' ? 'paid'
@@ -172,10 +191,11 @@ function loanView(loan, role, viewer) {
     confirmName: loan.confirmName || '',
     repayments: (loan.repayments || []).slice().reverse().map(r => ({
       id: r.id, amountYuan: centsToYuan(r.amountCents), amountCents: r.amountCents,
+      scheduleIdx: Number(r.scheduleIdx) || 0,
       method: r.method, ref: r.ref || '', note: r.note || '',
       voucher: r.voucher || null, voucherName: r.voucherName || null,
       submittedAt: r.submittedAt, confirmedAt: r.confirmedAt || null, status: r.status,
-      confirmNote: r.confirmNote || ''
+      confirmedBy: r.confirmedBy || '', confirmNote: r.confirmNote || ''
     })),
     payQr: viewer === 'lender-full' ? undefined : (lender.payQr || {}),
     /* 实名材料与手写借条照片：仅借贷双方可见（pub 公开视图不带） */
@@ -511,15 +531,19 @@ app.post('/api/loans/:id/repay', needLogin, upload.single('voucher'), (req, res)
   if (!['wechat', 'alipay', 'bank', 'cash'].includes(method)) return res.status(400).json({ ok: false, msg: '请选择转账方式' });
   const amountCents = yuanToCents(req.body.amount);
   if (!amountCents || amountCents <= 0) return res.status(400).json({ ok: false, msg: '请填写转账金额' });
+  /* 打卡期数：0=不指定（自动抵扣最早未还期），1..N 对应还款计划第 N 期 */
+  const maxIdx = buildSchedule(l).length;
+  let scheduleIdx = Math.round(Number(req.body.scheduleIdx)) || 0;
+  if (scheduleIdx < 0 || scheduleIdx > maxIdx) scheduleIdx = 0;
   const r = {
     id: crypto.randomBytes(8).toString('hex'),
-    amountCents, method,
+    amountCents, method, scheduleIdx,
     ref: String(req.body.ref || '').trim(),
     note: String(req.body.note || '').trim(),
     voucher: req.file ? '/uploads/' + req.file.filename : null,
     voucherName: req.file ? req.file.originalname : null,
     submittedAt: new Date().toISOString(),
-    confirmedAt: null, status: 'pending', confirmNote: ''
+    confirmedAt: null, status: 'pending', confirmedBy: '', confirmNote: ''
   };
   l.repayments.push(r);
   saveDb();
@@ -537,6 +561,7 @@ app.post('/api/loans/:id/repay/:rid/confirm', needLogin, (req, res) => {
   r.amountCents = actual;
   r.status = 'confirmed';
   r.confirmedAt = new Date().toISOString();
+  r.confirmedBy = req.user.name;
   r.confirmNote = String(req.body.note || '').trim();
   if (confirmedTotal(l) >= l.amountCents + loanInterest(l)) l.status = 'paid';
   saveDb();
@@ -549,6 +574,8 @@ app.post('/api/loans/:id/repay/:rid/reject', needLogin, (req, res) => {
   const r = (l.repayments || []).find(x => x.id === req.params.rid);
   if (!r) return res.status(404).json({ ok: false, msg: '还款记录不存在' });
   r.status = 'rejected';
+  r.confirmedAt = new Date().toISOString();
+  r.confirmedBy = req.user.name;
   r.confirmNote = String(req.body.note || '已驳回').trim();
   saveDb();
   res.json({ ok: true, loan: loanView(l, 'lender') });

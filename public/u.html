@@ -224,6 +224,8 @@ async function pageList(){
     }
     $('listBox').innerHTML=list.map(l=>{
       const[bc,bs]=stateInfo(l);
+      const pend=(l.repayments||[]).filter(r=>r.status==='pending');
+      const pendHtml=pend.length?`<div style="margin-top:10px;padding:8px 12px;border-radius:10px;font-size:12.5px;font-weight:700;${tab==='lender'?'background:var(--orange-bg);color:var(--orange);border:1px solid #f3c9a0':'background:var(--primary-light);color:var(--primary-2)'}">${tab==='lender'?'🔔 '+pend.length+' 笔还款待你确认到账，点击去打卡确认':'⏳ '+pend.length+' 笔还款待出借人打卡确认'}</div>`:'';
       return `<div class="loan-item" onclick="go('#/loan/${l.id}')">
         <div class="li-top"><span class="li-no">${esc(l.no)}</span><span class="badge ${bc}">${bs}</span></div>
         <div class="li-mid">
@@ -231,6 +233,7 @@ async function pageList(){
           <div class="li-sub">利率 ${l.ratePct}%/年 · ${esc(MTH[l.repayMethod]||'')}</div></div>
           <div class="li-amt">${money(l.amountYuan)}<small> 元</small></div>
         </div>
+        ${pendHtml}
         <div class="li-bottom"><span>借款日 ${esc(l.startDate)} → 到期日 ${esc(l.endDate)}</span>
         <span>${l.status==='paid'?'已结清':l.status==='pending'?'待确认':'剩余 '+money(l.remainYuan)+' 元'}</span></div>
       </div>`;
@@ -411,8 +414,9 @@ function renderLoan(){
       <tr><th>期数</th><th>到期日</th><th class="t-r">本金</th><th class="t-r">利息</th><th class="t-r">应还</th><th class="t-r">状态</th></tr>
       ${l.schedule.map(s=>{
         const paid=s.paidCents>=s.totalCents;
+        const part=!paid&&s.paidCents>0;
         const over=s.dueDate<new Date().toISOString().slice(0,10)&&!paid;
-        return `<tr><td>${s.idx}</td><td>${esc(s.dueDate)}</td><td class="t-r">${d2(s.principalCents/100)}</td><td class="t-r">${d2(s.interestCents/100)}</td><td class="t-r amt">${d2(s.totalCents/100)}</td><td class="t-r ${paid?'t-ok':over?'t-over':'t-pending'}">${paid?'✅已还':(over?'⚠️逾期':'待还')}</td></tr>`;
+        return `<tr><td>${s.idx}</td><td>${esc(s.dueDate)}</td><td class="t-r">${d2(s.principalCents/100)}</td><td class="t-r">${d2(s.interestCents/100)}</td><td class="t-r amt">${d2(s.totalCents/100)}</td><td class="t-r ${paid?'t-ok':over?'t-over':'t-pending'}">${paid?'✅ 已打卡':part?('部分 ¥'+d2(s.paidCents/100)):(over?'⚠️ 逾期':'待还')}</td></tr>`;
       }).join('')}
     </table>
     <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
@@ -432,24 +436,29 @@ function renderLoan(){
 
   ${(l.repayments||[]).length?`
   <div class="card">
-    <h2 class="sec">🧾 还款记录</h2>
-    ${l.repayments.map(r=>`
-      <div style="padding:12px 0;border-bottom:1px solid #f3f4f6">
+    <h2 class="sec">🧾 还款打卡记录</h2>
+    ${l.repayments.map(r=>{
+      const st=r.status,pendBox=st==='pending';
+      return `<div style="padding:12px;border-radius:12px;margin-bottom:10px;border:1.5px solid ${pendBox?'#f3c9a0':'#f3f4f6'};background:${pendBox?'var(--orange-bg)':'#fff'}">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <b>${money(r.amountYuan)} 元</b>
-          <span class="badge ${r.status==='confirmed'?'b-paid':r.status==='rejected'?'b-off':'b-pending'}">${r.status==='confirmed'?'✅ 已到账':r.status==='rejected'?'❌ 已驳回':'⏳ 待确认'}</span>
+          <b>${r.scheduleIdx?`<span style="display:inline-block;background:var(--primary-light);color:var(--primary-2);border-radius:6px;padding:1px 7px;font-size:12px;margin-right:6px">第 ${r.scheduleIdx} 期</span>`:''}${money(r.amountYuan)} 元</b>
+          <span class="badge ${st==='confirmed'?'b-paid':st==='rejected'?'b-off':'b-pending'}">${st==='confirmed'?'✅ 已收到':st==='rejected'?'❌ 已驳回':'⏳ 待确认'}</span>
         </div>
         <div style="font-size:12px;color:var(--text-2);margin-top:4px">
-          ${esc(RM[r.method]||r.method)} · ${new Date(r.submittedAt).toLocaleString('zh-CN')}
-          ${r.ref?' · 流水 '+esc(r.ref):''}
+          ${esc(RM[r.method]||r.method)}${r.ref?' · 流水 '+esc(r.ref):''}${r.note?' · '+esc(r.note):''}
+        </div>
+        <div style="font-size:12px;color:var(--text-2);margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">
+          ① 借款人 ${new Date(r.submittedAt).toLocaleString('zh-CN')} 提交打卡
+          ${st==='confirmed'?`<br>② 出借人 <b>${esc(r.confirmedBy||'')}</b> ${new Date(r.confirmedAt).toLocaleString('zh-CN')} 确认收到`:
+            st==='rejected'?`<br>② 出借人 <b>${esc(r.confirmedBy||'')}</b> ${new Date(r.confirmedAt).toLocaleString('zh-CN')} 驳回`:''}
         </div>
         ${r.voucher?`<img class="vch" src="${r.voucher}" style="margin-top:6px" onclick="$('imgFull').src=this.src;$('imgModal').style.display='flex'">`:''}
-        ${isL&&r.status==='pending'?`<div style="margin-top:8px;display:flex;gap:8px">
-          <button class="btn btn-g btn-sm" onclick="confirmRepay('${l.id}','${r.id}')">✅ 确认到账</button>
+        ${isL&&pendBox?`<div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn btn-g btn-sm" style="flex:1.4" onclick="confirmRepay('${l.id}','${r.id}')">✅ 打卡确认收到</button>
           <button class="btn btn-ghost btn-sm" onclick="rejectRepay('${l.id}','${r.id}')">✕ 驳回</button>
         </div>`:''}
         ${r.confirmNote?`<div style="font-size:12px;color:var(--text-3);margin-top:6px">备注：${esc(r.confirmNote)}</div>`:''}
-      </div>`).join('')}
+      </div>`}).join('')}
   </div>`:''}
 
   <div class="card">
@@ -547,7 +556,7 @@ async function showQr(){
   <button class="btn btn-p btn-block" style="margin-top:14px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${j.url}').then(()=>toast('链接已复制'));">复制链接</button>`);
 }
 async function confirmRepay(lid,rid){
-  const actual=prompt('确认到账金额（元），可直接回车按提交金额确认：','')||'';
+  const actual=prompt('打卡确认到账金额（元），直接回车按提交金额确认：','')||'';
   const j=await api(`/api/loans/${lid}/repay/${rid}/confirm`,{method:'POST',body:JSON.stringify({actualAmount:actual===''?undefined:actual})});
   toast(j.ok?'✅ 已确认到账':j.msg);
   if(j.ok)pageLoan(lid);
@@ -559,12 +568,19 @@ async function rejectRepay(lid,rid){
   toast(j.ok?'已驳回':j.msg);
   if(j.ok)pageLoan(lid);
 }
-/* 提交还款凭证 */
+/* 提交还款凭证（打卡） */
 function showRepaySheet(){
   const l=CUR.loan;
-  openSheet(`<h3>💸 提交还款凭证</h3>
-  <p class="sh-sub">当前剩余应还 <b style="color:var(--danger)">${money(l.remainYuan)}</b> 元。请先通过出借人收款方式完成转账，再提交凭证。</p>
+  const unpaid=l.schedule.filter(s=>s.paidCents<s.totalCents);
+  const periodOpts=unpaid.map((s,i)=>`<option value="${s.idx}" ${i===0?'selected':''}>第 ${s.idx} 期 · ${esc(s.dueDate)} · 应还 ${money(s.dueYuan)} 元</option>`).join('');
+  openSheet(`<h3>💸 提交还款打卡</h3>
+  <p class="sh-sub">当前剩余应还 <b style="color:var(--danger)">${money(l.remainYuan)}</b> 元。请先通过出借人收款方式完成转账，再提交打卡凭证，出借人确认后该期打卡生效。</p>
   <div class="err" id="serr" style="display:none"></div>
+  <label>打卡期数</label>
+  <select id="rperiod">
+    <option value="0">不指定（自动抵扣最早未还期）</option>
+    ${periodOpts}
+  </select>
   <label>转账方式 <span class="must">*</span></label>
   <select id="rm2"><option value="wechat">微信转账</option><option value="alipay">支付宝转账</option><option value="bank">银行转账</option><option value="cash">现金</option></select>
   <label>转账金额（元）<span class="must">*</span></label>
@@ -575,11 +591,20 @@ function showRepaySheet(){
   <input type="file" id="rvch" accept="image/*" style="padding:9px">
   <label>备注（选填）</label>
   <input type="text" id="rnote" placeholder="例如 第2期月供">
-  <button class="btn btn-o btn-block" style="margin-top:18px" id="btnSubmitRepay">提交，等出借人确认</button>`);
+  <button class="btn btn-o btn-block" style="margin-top:18px" id="btnSubmitRepay">提交打卡，等出借人确认</button>`);
+  if(unpaid.length){
+    const s0=unpaid[0];
+    if(l.remainYuan>=(s0.totalCents-s0.paidCents)/100)$('ramt').value=(s0.totalCents-s0.paidCents)/100;
+    $('rperiod').onchange=()=>{
+      const idx=Number($('rperiod').value);
+      if(idx>0){const s=l.schedule.find(x=>x.idx===idx);$('ramt').value=(s.totalCents-s.paidCents)/100}
+    };
+  }
   $('btnSubmitRepay').onclick=async()=>{
     const fd=new FormData();
     fd.append('method',$('rm2').value);
     fd.append('amount',$('ramt').value);
+    fd.append('scheduleIdx',$('rperiod').value);
     fd.append('ref',$('rref').value);
     fd.append('note',$('rnote').value);
     const f=$('rvch').files[0];
@@ -587,7 +612,7 @@ function showRepaySheet(){
     const btn=$('btnSubmitRepay');btn.disabled=true;btn.textContent='提交中…';
     const r=await fetch('/api/loans/'+l.id+'/repay',{method:'POST',body:fd});
     const j=await r.json();
-    if(!j.ok){const e=$('serr');e.textContent=j.msg;e.style.display='block';btn.disabled=false;btn.textContent='提交，等出借人确认';return}
+    if(!j.ok){const e=$('serr');e.textContent=j.msg;e.style.display='block';btn.disabled=false;btn.textContent='提交打卡，等出借人确认';return}
     closeSheet();toast('✅ '+j.msg);pageLoan(l.id);
   };
 }
