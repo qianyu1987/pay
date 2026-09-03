@@ -304,7 +304,46 @@ ssh <ssh-user>@<your-server-ip> "cd /opt/<your-project-path> && pm2 restart loan
 
 ---
 
-## 十一、GitHub 仓库
+## 十一、安全部署脚本（推荐使用，避免 rsync --delete 误删事故）
+
+```bash
+#!/bin/bash
+# safe-deploy.sh — 仅同步代码文件，绝不触碰 data/、node_modules/、包配置等敏感/受管路径
+set -euo pipefail
+
+LOCAL_ROOT="$(cd "$(dirname "$0")" && pwd)"
+REMOTE="<ssh-user>@<your-server-ip>"
+DEST="/opt/<your-project-path>"
+
+echo "=== 1. 仅同步代码（不删任何文件） ==="
+rsync -avz \
+  --exclude='data/' --exclude='node_modules/' --exclude='.git/' \
+  --exclude='screenshots/' --exclude='*.bak' --exclude='db.json*' \
+  "$LOCAL_ROOT/server.js" "$LOCAL_ROOT/public/" "$LOCAL_ROOT/package.json" \
+  "$LOCAL_ROOT/package-lock.json" \
+  "$REMOTE:$DEST/"
+
+echo "=== 2. 远程：确保目录结构 ==="
+ssh "$REMOTE" "cd $DEST && mkdir -p data data/uploads data/uploads_id"
+
+echo "=== 3. 远程：依赖如有变动则安装 ==="
+ssh "$REMOTE" "cd $DEST && [ -d node_modules/express ] || npm install --omit=dev --no-audit --no-fund"
+
+echo "=== 4. 重启服务 ==="
+ssh "$REMOTE" "cd $DEST && pm2 restart loan-pay && sleep 2 && pm2 list | grep loan-pay"
+
+echo "=== 5. 验证线上 ==="
+curl -sS -o /dev/null -w 'HTTPS %{http_code}\n' https://<your-domain>/
+```
+
+**禁止使用的危险命令**：
+- ❌ `rsync --delete` —— 会删除 dest 中任何不在 source 的文件（曾因此误删生产 data + node_modules + package.json）
+- ❌ `rm -rf /opt/loan-pay/` —— 不可逆
+- ❌ 直接覆盖 `data/db.json` —— 会丢失所有用户数据
+
+---
+
+## 十二、GitHub 仓库
 
 - 仓库地址：`<your-github-repo-url>`（如 `git@github.com:your-name/your-repo.git`）
 - 分支：`main`
